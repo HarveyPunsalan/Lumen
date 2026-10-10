@@ -1,0 +1,26 @@
+node_modules/
+dist/
+dist-electron/
+release/
+out/
+build/
+
+.env
+.env.local
+.env.production
+.env.*.local
+
+*.log
+npm-debug.log*
+yarn-error.log*
+
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+*.swp
+
+# Recordings never belong in the repository
+recordings/
+*.webm
