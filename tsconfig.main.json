@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "rootDir": "./src",
+    "outDir": "./dist-electron",
+    "noEmit": false,
+
+    "paths": {
+      "@lumen/kernel/*": ["./src/kernel/*"],
+      "@lumen/modules/*": ["./src/modules/*"],
+      "@lumen/platform/*": ["./src/platform/*"]
+    }
+  },
+  "include": ["src/platform/main", "src/modules", "src/kernel", "src/app"]
+}

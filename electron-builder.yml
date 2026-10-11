@@ -1,0 +1,57 @@
+appId: cloud.lumen.app
+productName: Lumen
+copyright: MIT
+
+directories:
+  output: release
+  buildResources: build
+
+files:
+  - dist/**/*
+  - dist-electron/**/*
+  - package.json
+
+asar: true
+
+mac:
+  category: public.app-category.productivity
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  # These three keys are required on macOS 26. Without them a screen recorder
+  # silently captures only the desktop wallpaper, with no error. See ADR 0001
+  # and SECURITY.md.
+  extendInfo:
+    NSScreenCaptureUsageDescription: >-
+      Lumen needs screen recording access to capture the window or region you
+      choose.
+    NSAudioCaptureUsageDescription: >-
+      Lumen needs audio access to include sound from your Mac in recordings.
+    NSMicrophoneUsageDescription: >-
+      Lumen needs microphone access to record your narration.
+    LSApplicationCategoryType: public.app-category.productivity
+
+dmg:
+  title: ${productName}
+  contents:
+    - x: 140
+      y: 200
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+win:
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  shortcutName: Lumen

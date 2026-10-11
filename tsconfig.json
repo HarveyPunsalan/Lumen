@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+
+    "paths": {
+      "@lumen/kernel/*": ["./src/kernel/*"],
+      "@lumen/modules/*": ["./src/modules/*"],
+      "@lumen/platform/*": ["./src/platform/*"]
+    }
+  },
+  "include": ["src/platform/renderer", "src/modules", "src/kernel"]
+}
