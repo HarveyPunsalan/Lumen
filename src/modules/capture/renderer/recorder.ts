@@ -13,12 +13,7 @@ import type { Target } from '../types.js'
 export type RecorderChunkHandler = (chunk: Blob) => void
 
 export class Recorder {
-  private constructor() {}
-
-  /** Acquire the capture stream for a Target and return a Recorder for it. */
-  static async start(_target: Target): Promise<Recorder> {
-    throw new Error('Recorder.start is not implemented yet.')
-  }
+  private recorder: MediaRecorder | null = null
 
   /**
    * Begin the current Segment. handler receives a blob every `timesliceMs`.
@@ -28,18 +23,57 @@ export class Recorder {
    * in memory until stopped, which means a two hour Session exhausts RAM and a
    * crash loses the whole Recording. See ADR 0002.
    */
-  beginSegment(_handler: RecorderChunkHandler, _timesliceMs: number): void {
-    throw new Error('Recorder.beginSegment is not implemented yet.')
+  async beginSegment(
+    target: Target,
+    handler: RecorderChunkHandler,
+    timesliceMs: number,
+  ): Promise<void> {
+    this.dispose()
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        mandatory: {
+          chromeMediaSource: 'desktop',
+          chromeMediaSourceId: target.source.id,
+        },
+      } as unknown as MediaTrackConstraints,
+      audio: false,
+    })
+
+    this.stream = stream
+    this.recorder = new MediaRecorder(stream, { mimeType: SEGMENT_MIME_TYPE })
+    this.recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) handler(event.data)
+    }
+    this.recorder.start(timesliceMs)
   }
 
+  private stream: MediaStream | null = null
+
   /** End the current Segment and return everything it produced. */
-  endSegment(): Promise<Blob> {
-    throw new Error('Recorder.endSegment is not implemented yet.')
+  async endSegment(): Promise<Blob> {
+    const recorder = this.recorder
+    if (recorder === null) throw new Error('No Segment is in progress.')
+
+    const chunks: Blob[] = []
+    const done = new Promise<Blob>((resolve) => {
+      recorder.onstop = () => resolve(new Blob(chunks, { type: SEGMENT_MIME_TYPE }))
+    })
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunks.push(event.data)
+    }
+
+    recorder.stop()
+    this.recorder = null
+    return done
   }
 
   /** Release the capture stream. Called on Stop, and on every failure path. */
   dispose(): void {
-    throw new Error('Recorder.dispose is not implemented yet.')
+    this.recorder?.stop()
+    this.recorder = null
+    for (const track of this.stream?.getTracks() ?? []) track.stop()
+    this.stream = null
   }
 }
 

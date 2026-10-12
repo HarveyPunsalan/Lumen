@@ -16,16 +16,17 @@ const api = {
   // capture
   listSources: () => ipcRenderer.invoke('capture:sources'),
   openScreenRecordingSettings: () => ipcRenderer.invoke('capture:open-settings'),
+  selectSource: (sourceId: string) => ipcRenderer.invoke('capture:select-source', sourceId),
+  clearSource: () => ipcRenderer.invoke('capture:clear-source'),
 
   // session
   beginSession: () => ipcRenderer.invoke('session:begin'),
-  sessionStatus: () => ipcRenderer.invoke('session:status'),
-  endSession: () => ipcRenderer.invoke('session:end'),
+  nextSegmentPath: () => ipcRenderer.invoke('session:segment-path'),
+  writeChunk: (relativePath: string, bytes: ArrayBuffer) =>
+    ipcRenderer.invoke('session:write-chunk', relativePath, bytes),
 
   // library
   libraryRoot: () => ipcRenderer.invoke('library:root'),
-  totalBytes: () => ipcRenderer.invoke('library:total-bytes'),
-  listRecordings: () => ipcRenderer.invoke('library:list'),
 } as const
 
 export type LumenApi = typeof api

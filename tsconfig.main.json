@@ -20,5 +20,6 @@
       "@lumen/platform/*": ["./src/platform/*"]
     }
   },
-  "include": ["src/platform/main", "src/modules", "src/kernel", "src/app"]
+  "include": ["src/platform/main", "src/modules", "src/kernel", "src/app"],
+  "exclude": ["src/modules/capture/renderer"]
 }

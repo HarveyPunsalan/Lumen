@@ -6,7 +6,11 @@
  * See architecture.md, No module-level mutable state.
  */
 
+import { randomUUID } from 'node:crypto'
+import path from 'node:path'
+import { ensureSessionFolder } from '../library/paths.js'
 import type { FrameSettings } from '../frame/types.js'
+import { DEFAULT_FRAME_SETTINGS } from '../frame/types.js'
 
 /**
  * One uninterrupted run of the recorder inside a Session. Switching Target
@@ -30,11 +34,7 @@ export interface SessionInfo {
 
 export class Session {
   private readonly segments: Segment[] = []
-  private frame: FrameSettings = {
-    enabled: false,
-    corner: 'bottom-right',
-    background: 'blurred',
-  }
+  private frame: FrameSettings = DEFAULT_FRAME_SETTINGS
 
   private constructor(
     readonly id: string,
@@ -42,29 +42,37 @@ export class Session {
     readonly startedAt: number,
   ) {}
 
-  /**
-   * Create a Session folder under the Library root.
-   * @param libraryRoot absolute path to the Library, not to its parent
-   */
-  static async create(_libraryRoot: string): Promise<Session> {
-    throw new Error('Session.create is not implemented yet.')
+  static async create(libraryRoot: string): Promise<Session> {
+    const id = randomUUID()
+    const startedAt = Date.now()
+    const stamp = new Date(startedAt).toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const folder = await ensureSessionFolder(path.join(libraryRoot, `${stamp}_${id.slice(0, 8)}`))
+    return new Session(id, folder, startedAt)
   }
 
-  /** Reserve the next Segment filename. Segments are numbered in order. */
   nextSegmentPath(): string {
-    throw new Error('Session.nextSegmentPath is not implemented yet.')
+    const name = `part-${String(this.segments.length + 1).padStart(3, '0')}.webm`
+    return path.join(this.folder, name)
   }
 
-  addSegment(_fileName: string, _sourceId: string, _sourceName: string): Segment {
-    throw new Error('Session.addSegment is not implemented yet.')
+  addSegment(fileName: string, sourceId: string, sourceName: string): Segment {
+    const segment: Segment = {
+      index: this.segments.length + 1,
+      fileName,
+      sourceId,
+      sourceName,
+      startedAt: Date.now(),
+    }
+    this.segments.push(segment)
+    return segment
   }
 
   /**
    * Frame settings are chosen at Export, not at record time. ADR 0004.
    * Only whether the camera is on has to be decided before recording starts.
    */
-  setFrameSettings(_settings: FrameSettings): void {
-    throw new Error('Session.setFrameSettings is not implemented yet.')
+  setFrameSettings(settings: FrameSettings): void {
+    this.frame = settings
   }
 
   get info(): SessionInfo {
@@ -75,18 +83,5 @@ export class Session {
       segments: [...this.segments],
       frame: this.frame,
     }
-  }
-
-  /** Write meta.json into the Session folder. */
-  async writeMetadata(): Promise<void> {
-    throw new Error('Session.writeMetadata is not implemented yet.')
-  }
-
-  /**
-   * Remove every Segment. Called once Export succeeds, because Segments are
-   * an implementation detail and the MP4 is the Recording.
-   */
-  async clearSegments(): Promise<void> {
-    throw new Error('Session.clearSegments is not implemented yet.')
   }
 }
