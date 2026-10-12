@@ -3,17 +3,21 @@
  * not available in the renderer.
  */
 
-import type { PermissionReport } from '../types.js'
+import { systemPreferences, shell } from 'electron'
+import type { PermissionReport, PermissionState } from '../types.js'
 
-/** Current state of the screen and microphone gates. */
 export async function getPermissions(): Promise<PermissionReport> {
-  throw new Error('getPermissions is not implemented yet.')
+  return {
+    screen: systemPreferences.getMediaAccessStatus('screen') as PermissionState,
+    microphone: systemPreferences.getMediaAccessStatus('microphone') as PermissionState,
+  }
 }
 
-/**
- * Open the System Settings pane that grants screen recording.
- * macOS only. Returns false on Windows, where no such gate exists.
- */
+/** macOS only. Returns false on Windows, which has no equivalent gate. */
 export async function openScreenRecordingSettings(): Promise<boolean> {
-  throw new Error('openScreenRecordingSettings is not implemented yet.')
+  if (process.platform !== 'darwin') return false
+  await shell.openExternal(
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+  )
+  return true
 }

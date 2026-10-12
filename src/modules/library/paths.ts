@@ -82,6 +82,16 @@ export async function readFileInLibrary(relative: string): Promise<Uint8Array> {
 }
 
 /**
+ * Append to a file inside the Library.
+ *
+ * Recorder chunks accumulate into one Segment file, so this appends rather
+ * than overwrites. One chunk is lost at most if the app dies mid-Segment.
+ */
+export async function appendFileInLibrary(relative: string, bytes: Uint8Array): Promise<void> {
+  await fs.appendFile(resolveInLibrary(relative), bytes)
+}
+
+/**
  * Delete a file. Delete means delete.
  *
  * No trash folder. A "safe" recycle bin inside the Library is a directory
@@ -91,7 +101,7 @@ export async function deleteInLibrary(relative: string): Promise<void> {
   await fs.rm(resolveInLibrary(relative), { force: true })
 }
 
-/** Total bytes used by the Library, for the size indicator in the UI. */
-export async function totalBytes(): Promise<number> {
-  throw new Error('totalBytes is not implemented yet.')
+/** Absolute path to something inside the Library, relative to its root. */
+export function relativeInLibrary(target: string): string {
+  return path.relative(libraryRoot(), assertInsideLibrary(target))
 }
