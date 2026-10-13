@@ -3,14 +3,16 @@
  * SECURITY.md DA6. Do not relax one without changing SECURITY.md first.
  */
 
-import { BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { LUMEN_SCHEME } from './protocol.js'
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url))
-const preloadPath = path.join(currentDir, 'preload.js')
-const devServer = process.env['VITE_DEV_SERVER_URL']
+// preload.cjs, not preload.js. A sandboxed renderer cannot load an ES module
+// preload, it fails silently and window.lumen never gets defined.
+// See SECURITY.md, DA6, sandbox: true.
+const preloadPath = path.join(currentDir, 'preload.cjs')
 
 export function createMainWindow(): BrowserWindow {
   const window = new BrowserWindow({
@@ -38,10 +40,13 @@ export function createMainWindow(): BrowserWindow {
   window.webContents.on('will-navigate', (event) => event.preventDefault())
 
   // DA6. Load the custom protocol, never file://, which can read the disk.
-  if (devServer !== undefined && devServer !== '') {
-    void window.loadURL(devServer)
-  } else {
+  // app.isPackaged is false when running from source, so dev uses the Vite
+  // server on its default port. vite.config.ts sets strictPort, so the port
+  // cannot drift without this failing loudly.
+  if (app.isPackaged) {
     void window.loadURL(`${LUMEN_SCHEME}://app/index.html`)
+  } else {
+    void window.loadURL('http://localhost:5173')
   }
 
   return window

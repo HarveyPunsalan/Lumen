@@ -1,19 +1,21 @@
 /**
- * The grid of Displays and Windows, plus record and stop.
+ * Pick what to record. The Week 1 gate: one Window in, one file on disk.
  *
- * Records one Segment to the Library. Switching Target is Week 2, so the
- * picker is locked once recording starts.
+ * How a screen looks is design.md. How the React works is react.md.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Source } from '@lumen/modules/capture/types'
 import {
   Recorder,
   SEGMENT_TIMESLICE_MS,
-  SEGMENT_MIME_TYPE,
 } from '@lumen/modules/capture/renderer/recorder'
 
-type Status = 'idle' | 'recording' | 'saved' | 'error'
+type Status = 'idle' | 'starting' | 'recording' | 'saved' | 'error'
+
+function message(cause: unknown): string {
+  return cause instanceof Error ? cause.message : String(cause)
+}
 
 export function SourcePicker() {
   const [sources, setSources] = useState<Source[]>([])
@@ -21,36 +23,52 @@ export function SourcePicker() {
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
-  const recorderRef = useRef<Recorder | null>(null)
+  const recorder = useRef<Recorder | null>(null)
 
   useEffect(() => {
-    void window.lumen.listSources().then(setSources).catch((cause: unknown) => {
-      setError(cause instanceof Error ? cause.message : String(cause))
-      setStatus('error')
-    })
+    void window.lumen
+      .listSources()
+      .then(setSources)
+      .catch((cause: unknown) => {
+        setError(message(cause))
+        setStatus('error')
+      })
   }, [])
 
-  async function start(picked: Source) {
+  async function start(source: Source) {
     try {
-      await window.lumen.selectSource(picked.id)
-      setFolder((await window.lumen.beginSession()).folder)
-      setStatus('recording')
+      setStatus('starting')
       setError(null)
+      await window.lumen.selectSource(source.id)
+      const session = await window.lumen.beginSession()
+      setFolder(session.folder)
+      setStatus('recording')
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      setError(message(cause))
       setStatus('error')
     }
   }
 
-  async function stop() {
-    recorderRef.current?.dispose()
+  const stop = useCallback(async () => {
+    recorder.current?.dispose()
+    recorder.current = null
     await window.lumen.clearSource()
     setStatus('saved')
-  }
+  }, [])
 
-  // One recorder per Session. Not state, because it is not UI state.
   if (status === 'recording' && picked !== null) {
-    return <RecordingControls source={picked} recorderRef={recorderRef} onStop={stop} />
+    return (
+      <RecordingControls
+        source={picked}
+        recorderRef={recorder}
+        folder={folder}
+        onStop={stop}
+        onError={(cause: unknown) => {
+          setError(message(cause))
+          setStatus('error')
+        }}
+      />
+    )
   }
 
   return (
@@ -61,8 +79,17 @@ export function SourcePicker() {
       </p>
 
       {error !== null && (
-        <p className="mt-4 rounded-md border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">
-          {error}
+        <div className="mt-4 rounded-md border border-red-900 bg-red-950/40 p-3">
+          <p className="text-sm text-red-200">{error}</p>
+          <p className="mt-1 text-xs text-red-300/60">
+            Full detail is in the terminal running npm run dev.
+          </p>
+        </div>
+      )}
+
+      {status === 'saved' && error === null && (
+        <p className="mt-4 rounded-md border border-neutral-800 bg-neutral-900 p-3 text-sm text-neutral-300">
+          Saved to {folder}
         </p>
       )}
 
@@ -96,48 +123,75 @@ export function SourcePicker() {
           onClick={() => {
             if (picked !== null) void start(picked)
           }}
-          disabled={picked === null}
+          disabled={picked === null || status === 'starting'}
           className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white disabled:bg-neutral-800 disabled:text-neutral-500"
         >
-          Start recording
+          {status === 'starting' ? 'Starting...' : 'Start recording'}
         </button>
-        {folder !== null && (
-          <p className="text-xs text-neutral-600">Saving to {folder}</p>
-        )}
+        {folder !== null && <p className="text-xs text-neutral-600">Saving to {folder}</p>}
       </div>
     </div>
   )
 }
 
-/** The REC badge is never optional and is never hidden. See library.md. */
+/**
+ * The REC badge is never optional and is never hidden. See library.md.
+ *
+ * The preview shows the same stream the recorder is encoding, so what you see
+ * here is exactly what lands in the file.
+ */
 function RecordingControls({
   source,
   recorderRef,
+  folder,
   onStop,
+  onError,
 }: {
   source: Source
   recorderRef: React.RefObject<Recorder | null>
+  folder: string | null
   onStop: () => Promise<void>
+  onError: (cause: unknown) => void
 }) {
   const [elapsed, setElapsed] = useState(0)
+  const [ready, setReady] = useState(false)
+  const preview = useRef<HTMLVideoElement | null>(null)
 
   useEffect(() => {
     const recorder = new Recorder()
     recorderRef.current = recorder
+    let stopped = false
 
     void (async () => {
-      const { relativePath } = await window.lumen.nextSegmentPath()
-      await recorder.beginSegment({ source }, async (chunk) => {
-        await window.lumen.writeChunk(relativePath, await chunk.arrayBuffer())
-      }, SEGMENT_TIMESLICE_MS)
+      try {
+        const { relativePath } = await window.lumen.nextSegmentPath()
+        await recorder.beginSegment(
+          { source },
+          async (chunk) => {
+            if (stopped) return
+            await window.lumen.writeChunk(relativePath, await chunk.arrayBuffer())
+          },
+          SEGMENT_TIMESLICE_MS,
+        )
+        if (stopped) return
+        if (preview.current !== null && recorder.previewStream !== null) {
+          preview.current.srcObject = recorder.previewStream
+        }
+        setReady(true)
+      } catch (cause) {
+        if (stopped) return
+        recorder.dispose()
+        onError(cause)
+      }
     })()
 
     const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => {
+      stopped = true
       clearInterval(timer)
       recorder.dispose()
     }
-  }, [source, recorderRef])
+  }, [source, recorderRef, onError])
 
   return (
     <div className="p-8">
@@ -153,8 +207,22 @@ function RecordingControls({
         >
           Stop
         </button>
+        <span className="text-sm text-neutral-500">
+          {ready ? 'Capturing' : 'Starting capture...'}
+        </span>
       </div>
-      <p className="mt-4 text-xs text-neutral-600">Encoding as {SEGMENT_MIME_TYPE}</p>
+
+      <div className="mt-6 max-w-2xl overflow-hidden rounded-lg border border-neutral-800 bg-black">
+        <video
+          ref={preview}
+          autoPlay
+          muted
+          playsInline
+          className="aspect-video w-full object-contain"
+        />
+      </div>
+
+      {folder !== null && <p className="mt-4 text-xs text-neutral-600">Saving to {folder}</p>}
     </div>
   )
 }

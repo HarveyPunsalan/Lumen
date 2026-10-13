@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { LumenApi } from '../main/preload.js'
+import type { LumenApi } from '../main/preload.cjs'
 
 declare global {
   interface Window {
