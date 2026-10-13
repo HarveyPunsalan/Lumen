@@ -11,6 +11,8 @@ import { LUMEN_SCHEME } from './protocol.js'
 
 export type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 
+const DEV_SERVER_ORIGIN = 'http://localhost:5173'
+
 /**
  * Only our own window may talk to the main process.
  *
@@ -20,12 +22,7 @@ export type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
 export function isTrustedSender(event: IpcMainInvokeEvent): boolean {
   const url = event.senderFrame?.url
   if (url === undefined) return false
-
-  const devServer = process.env['VITE_DEV_SERVER_URL']
-  if (devServer !== undefined && devServer !== '' && url.startsWith(devServer)) {
-    return true
-  }
-  return url.startsWith(`${LUMEN_SCHEME}://app`)
+  return url.startsWith(`${LUMEN_SCHEME}://app`) || url.startsWith(DEV_SERVER_ORIGIN)
 }
 
 /** Wrap a handler so it refuses to run for an untrusted sender. */

@@ -7,7 +7,16 @@
  * See SECURITY.md, Do not expose Electron APIs.
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+// CommonJS require, not import. A sandboxed renderer cannot load an ES module
+// preload, so this file is compiled as .cts and must not use import syntax.
+// `moduleResolution: node16/nodenext` would reject import assignment here,
+// which is why tsconfig.preload.json uses plain node resolution.
+import type { ContextBridge, IpcRenderer } from 'electron'
+
+const { contextBridge, ipcRenderer } = require('electron') as {
+  contextBridge: ContextBridge
+  ipcRenderer: IpcRenderer
+}
 
 const api = {
   // permissions

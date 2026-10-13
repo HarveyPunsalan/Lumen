@@ -14,6 +14,7 @@ export type RecorderChunkHandler = (chunk: Blob) => void
 
 export class Recorder {
   private recorder: MediaRecorder | null = null
+  private stream: MediaStream | null = null
 
   /**
    * Begin the current Segment. handler receives a blob every `timesliceMs`.
@@ -48,24 +49,14 @@ export class Recorder {
     this.recorder.start(timesliceMs)
   }
 
-  private stream: MediaStream | null = null
-
-  /** End the current Segment and return everything it produced. */
-  async endSegment(): Promise<Blob> {
-    const recorder = this.recorder
-    if (recorder === null) throw new Error('No Segment is in progress.')
-
-    const chunks: Blob[] = []
-    const done = new Promise<Blob>((resolve) => {
-      recorder.onstop = () => resolve(new Blob(chunks, { type: SEGMENT_MIME_TYPE }))
-    })
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunks.push(event.data)
-    }
-
-    recorder.stop()
-    this.recorder = null
-    return done
+  /**
+   * The live capture stream, for the preview.
+   *
+   * Same stream the recorder is encoding, so what the preview shows is exactly
+   * what is being recorded. Null until beginSegment resolves.
+   */
+  get previewStream(): MediaStream | null {
+    return this.stream
   }
 
   /** Release the capture stream. Called on Stop, and on every failure path. */

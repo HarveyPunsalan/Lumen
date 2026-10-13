@@ -8,7 +8,6 @@
  */
 
 import { session } from 'electron'
-import path from 'node:path'
 import { appendFileInLibrary, libraryRoot, relativeInLibrary } from '../../modules/library/paths.js'
 import { Session } from '../../modules/session/session.js'
 
@@ -24,8 +23,18 @@ export function clearSelection(): void {
 }
 
 /** Open a Session folder. Segments are written there and nowhere else. */
-export async function beginSession(): Promise<{ relativePath: string; folder: string }> {
+export async function beginSession(): Promise<SessionPaths> {
   currentSession = await Session.create(libraryRoot())
+  return sessionPaths()
+}
+
+interface SessionPaths {
+  readonly relativePath: string
+  readonly folder: string
+}
+
+function sessionPaths(): SessionPaths {
+  if (currentSession === null) throw new Error('No Session in progress.')
   return {
     relativePath: relativeInLibrary(currentSession.nextSegmentPath()),
     folder: currentSession.folder,
@@ -40,13 +49,9 @@ export async function writeSegment(relativePath: string, bytes: ArrayBuffer): Pr
   await appendFileInLibrary(relativePath, new Uint8Array(bytes))
 }
 
-export function currentSessionFolder(): string | null {
-  return currentSession === null ? null : currentSession.folder
-}
-
-export async function segmentPath(): Promise<string> {
-  if (currentSession === null) throw new Error('No Session in progress.')
-  return path.relative(libraryRoot(), currentSession.nextSegmentPath())
+/** Same shape as beginSession. The renderer destructures both. */
+export async function segmentPath(): Promise<SessionPaths> {
+  return sessionPaths()
 }
 
 /**
