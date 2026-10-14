@@ -34,6 +34,7 @@ export interface SessionInfo {
 
 export class Session {
   private readonly segments: Segment[] = []
+  private reserved = 0
   private frame: FrameSettings = DEFAULT_FRAME_SETTINGS
 
   private constructor(
@@ -50,8 +51,16 @@ export class Session {
     return new Session(id, folder, startedAt)
   }
 
+  /**
+   * Reserve the next Segment file name.
+   *
+   * The counter advances on each call, not on addSegment, because the caller
+   * needs a name before any Segment data exists. Deriving it from segments
+   * would hand out part-001 forever.
+   */
   nextSegmentPath(): string {
-    const name = `part-${String(this.segments.length + 1).padStart(3, '0')}.webm`
+    this.reserved += 1
+    const name = `part-${String(this.reserved).padStart(3, '0')}.webm`
     return path.join(this.folder, name)
   }
 

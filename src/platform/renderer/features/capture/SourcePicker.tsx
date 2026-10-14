@@ -1,29 +1,89 @@
 /**
- * Pick what to record. The Week 1 gate: one Window in, one file on disk.
+ * Pick what to record, then record it.
+ *
+ * Three modes, matching CONTEXT.md. Whole Screen follows whatever is on the
+ * display. Selected Window stays locked to one app. Region stays locked to a
+ * rectangle you drag.
  *
  * How a screen looks is design.md. How the React works is react.md.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Source } from '@lumen/modules/capture/types'
+import type { CaptureMode, Region, Source } from '@lumen/modules/capture/types'
 import {
   Recorder,
   SEGMENT_TIMESLICE_MS,
 } from '@lumen/modules/capture/renderer/recorder'
+import { RegionSelector } from './RegionSelector'
 
-type Status = 'idle' | 'starting' | 'recording' | 'saved' | 'error'
+type Status = 'idle' | 'choosing-region' | 'starting' | 'recording' | 'saved' | 'error'
 
 function message(cause: unknown): string {
   return cause instanceof Error ? cause.message : String(cause)
 }
 
+/**
+ * Stop waiting on a promise that never settles.
+ *
+ * Every hang so far looked identical from the outside: a button that says
+ * "Starting..." forever. That is the worst failure mode, because it is
+ * indistinguishable from a slow machine. Anything longer than this is reported
+ * as an error with the underlying message, so the cause is visible instead of
+ * inferred.
+ */
+async function withTimeout<T>(
+  work: Promise<T>,
+  label: string,
+  ms = 10_000,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error(`${label} did not respond within ${ms / 1000} seconds.`))
+        }, ms)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; hint: string }> = [
+  {
+    mode: 'whole-screen',
+    label: 'Whole Screen',
+    hint: 'Records everything. Whatever you are looking at comes with you.',
+  },
+  {
+    mode: 'selected-window',
+    label: 'Selected Window',
+    hint: 'Pick one app. It stays locked there even if you switch away.',
+  },
+  {
+    mode: 'region',
+    label: 'Region',
+    hint: 'Drag a box. Only that part is recorded, the rest is black.',
+  },
+]
+
 export function SourcePicker() {
   const [sources, setSources] = useState<Source[]>([])
-  const [picked, setPicked] = useState<Source | null>(null)
+  const [mode, setMode] = useState<CaptureMode>('whole-screen')
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState<string | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
+  const [picked, setPicked] = useState<Source | null>(null)
+  const [region, setRegion] = useState<Region | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const [progress, setProgress] = useState(0)
   const recorder = useRef<Recorder | null>(null)
+
+  useEffect(() => {
+    window.lumen.onExportProgress(setProgress)
+  }, [])
 
   useEffect(() => {
     void window.lumen
@@ -35,12 +95,44 @@ export function SourcePicker() {
       })
   }, [])
 
+  // No Display means Region cannot be drawn, so fall back to the mode list
+  // rather than setting state during render.
+  const screens = sources.filter((source) => source.kind === 'screen')
+  const windows = sources.filter((source) => source.kind === 'window')
+
+  if (status === 'choosing-region' && screens[0] === undefined) {
+    return (
+      <div className="p-8">
+        <h1 className="text-lg font-medium">Record</h1>
+        <p className="mt-4 rounded-md border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">
+          No Display was found.
+        </p>
+      </div>
+    )
+  }
+
+  function chooseMode(next: CaptureMode) {
+    setError(null)
+    if (next === 'region') {
+      setStatus('choosing-region')
+      return
+    }
+    setMode(next)
+    setPicked(next === 'whole-screen' ? (screens[0] ?? null) : null)
+    setStatus('idle')
+  }
+
   async function start(source: Source) {
     try {
       setStatus('starting')
       setError(null)
-      await window.lumen.selectSource(source.id)
-      const session = await window.lumen.beginSession()
+      // Only the id is sent. Main re-reads the live Source list and resolves the
+// rest itself, so the renderer never dictates what Electron is handed.
+await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
+      const session = await withTimeout(
+        window.lumen.beginSession(),
+        'Creating the recording folder',
+      )
       setFolder(session.folder)
       setStatus('recording')
     } catch (cause) {
@@ -49,19 +141,58 @@ export function SourcePicker() {
     }
   }
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (seconds: number) => {
     recorder.current?.dispose()
     recorder.current = null
     await window.lumen.clearSource()
-    setStatus('saved')
+
+    // The Segments become one MP4 here. The user waits for it rather than
+    // hunting for a Webm most players refuse to open.
+    try {
+      setExporting(true)
+      const output = await withTimeout(
+        window.lumen.finishSession(seconds),
+        'Saving the MP4',
+        300_000,
+      )
+      setFolder(output)
+      setStatus('saved')
+    } catch (cause) {
+      setError(message(cause))
+      setStatus('error')
+    } finally {
+      setExporting(false)
+    }
   }, [])
 
+  if (status === 'choosing-region') {
+    // Guarded above, so a Display exists here.
+    const screen = screens[0]
+    if (screen === undefined) return null
+    return (
+      <RegionSelector
+        screen={screen}
+        onCancel={() => setStatus('idle')}
+        onConfirm={(pickedRegion) => {
+          setRegion(pickedRegion)
+          setMode('region')
+          setPicked(screen)
+          setStatus('idle')
+        }}
+      />
+    )
+  }
+
   if (status === 'recording' && picked !== null) {
+    const target = region === null ? undefined : region
     return (
       <RecordingControls
         source={picked}
+        region={target ?? null}
         recorderRef={recorder}
         folder={folder}
+        exporting={exporting}
+        progress={progress}
         onStop={stop}
         onError={(cause: unknown) => {
           setError(message(cause))
@@ -74,16 +205,11 @@ export function SourcePicker() {
   return (
     <div className="p-8">
       <h1 className="text-lg font-medium">Record</h1>
-      <p className="mt-1 text-sm text-neutral-500">
-        Pick one window or screen. Only what you pick ends up in the file.
-      </p>
+      <p className="mt-1 text-sm text-neutral-500">Choose what gets recorded.</p>
 
       {error !== null && (
         <div className="mt-4 rounded-md border border-red-900 bg-red-950/40 p-3">
           <p className="text-sm text-red-200">{error}</p>
-          <p className="mt-1 text-xs text-red-300/60">
-            Full detail is in the terminal running npm run dev.
-          </p>
         </div>
       )}
 
@@ -93,30 +219,63 @@ export function SourcePicker() {
         </p>
       )}
 
-      <ul className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4">
-        {sources.map((source) => (
-          <li key={source.id}>
-            <button
-              onClick={() => setPicked(source)}
-              className={`block w-full overflow-hidden rounded-lg border text-left ${
-                picked?.id === source.id
-                  ? 'border-neutral-100'
-                  : 'border-neutral-800 hover:border-neutral-600'
-              }`}
-            >
-              <span className="flex aspect-video items-center justify-center bg-black">
-                <img src={source.thumbnail} alt="" className="max-h-full max-w-full object-contain" />
-              </span>
-              <span className="block px-3 py-2">
-                <span className="block truncate text-xs text-neutral-300">{source.name}</span>
-                <span className="mt-0.5 block text-[11px] uppercase tracking-wide text-neutral-600">
-                  {source.kind}
-                </span>
-              </span>
-            </button>
-          </li>
+      <div className="mt-6 flex gap-3">
+        {MODES.map((entry) => (
+          <button
+            key={entry.mode}
+            onClick={() => chooseMode(entry.mode)}
+            className={`flex-1 rounded-lg border p-4 text-left ${
+              mode === entry.mode
+                ? 'border-neutral-100 bg-neutral-900'
+                : 'border-neutral-800 hover:border-neutral-600'
+            }`}
+          >
+            <span className="block text-sm font-medium">{entry.label}</span>
+            <span className="mt-1 block text-xs text-neutral-500">{entry.hint}</span>
+          </button>
         ))}
-      </ul>
+      </div>
+
+      {mode === 'selected-window' && (
+        <div className="mt-6">
+          <h2 className="text-sm font-medium text-neutral-300">Pick an app</h2>
+          {windows.length === 0 ? (
+            <p className="mt-2 text-sm text-neutral-500">No open windows were found.</p>
+          ) : (
+            <ul className="mt-3 grid grid-cols-3 gap-2 md:grid-cols-4 lg:grid-cols-5">
+              {windows.map((source) => (
+                <li key={source.id}>
+                  <button
+                    onClick={() => setPicked(source)}
+                    className={`w-full overflow-hidden rounded-md border ${
+                      picked?.id === source.id
+                        ? 'border-neutral-100'
+                        : 'border-neutral-800 hover:border-neutral-600'
+                    }`}
+                  >
+                    <span className="flex aspect-video items-center justify-center bg-black">
+                      <img
+                        src={source.thumbnail}
+                        alt=""
+                        className="max-h-full max-w-full object-contain"
+                      />
+                    </span>
+                    <span className="block truncate px-2 py-1.5 text-left text-xs text-neutral-300">
+                      {source.name}
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
+      {region !== null && mode === 'region' && (
+        <p className="mt-4 text-xs text-neutral-500">
+          Region {region.width} by {region.height} at {region.x}, {region.y}
+        </p>
+      )}
 
       <div className="mt-6 flex items-center gap-4">
         <button
@@ -128,29 +287,32 @@ export function SourcePicker() {
         >
           {status === 'starting' ? 'Starting...' : 'Start recording'}
         </button>
-        {folder !== null && <p className="text-xs text-neutral-600">Saving to {folder}</p>}
+        {picked !== null && (
+          <span className="text-xs text-neutral-600">Recording {picked.name}</span>
+        )}
       </div>
     </div>
   )
 }
 
-/**
- * The REC badge is never optional and is never hidden. See library.md.
- *
- * The preview shows the same stream the recorder is encoding, so what you see
- * here is exactly what lands in the file.
- */
+/** The REC badge is never optional and is never hidden. See library.md. */
 function RecordingControls({
   source,
+  region,
   recorderRef,
   folder,
+  exporting,
+  progress,
   onStop,
   onError,
 }: {
   source: Source
+  region: Region | null
   recorderRef: React.RefObject<Recorder | null>
   folder: string | null
-  onStop: () => Promise<void>
+  exporting: boolean
+  progress: number
+  onStop: (seconds: number) => Promise<void>
   onError: (cause: unknown) => void
 }) {
   const [elapsed, setElapsed] = useState(0)
@@ -164,17 +326,24 @@ function RecordingControls({
 
     void (async () => {
       try {
-        const { relativePath } = await window.lumen.nextSegmentPath()
-        await recorder.beginSegment(
-          { source },
-          async (chunk) => {
-            if (stopped) return
-            await window.lumen.writeChunk(relativePath, await chunk.arrayBuffer())
-          },
-          SEGMENT_TIMESLICE_MS,
+        const { relativePath } = await withTimeout(
+          window.lumen.nextSegmentPath(),
+          'Reserving a file name',
+        )
+        await withTimeout(
+          recorder.beginSegment(
+            region === null ? { source } : { source, region },
+            async (chunk) => {
+              if (stopped) return
+              await window.lumen.writeChunk(relativePath, await chunk.arrayBuffer())
+            },
+            SEGMENT_TIMESLICE_MS,
+            preview.current ?? undefined,
+          ),
+          'Starting the capture',
         )
         if (stopped) return
-        if (preview.current !== null && recorder.previewStream !== null) {
+        if (region === null && preview.current !== null && recorder.previewStream !== null) {
           preview.current.srcObject = recorder.previewStream
         }
         setReady(true)
@@ -191,7 +360,7 @@ function RecordingControls({
       clearInterval(timer)
       recorder.dispose()
     }
-  }, [source, recorderRef, onError])
+  }, [source, region, recorderRef, onError])
 
   return (
     <div className="p-8">
@@ -202,17 +371,32 @@ function RecordingControls({
           {String(elapsed % 60).padStart(2, '0')}
         </span>
         <button
-          onClick={() => void onStop()}
-          className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900"
+          onClick={() => void onStop(elapsed)}
+          disabled={exporting}
+          className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 disabled:bg-neutral-800 disabled:text-neutral-500"
         >
-          Stop
+          {exporting ? 'Saving...' : 'Stop'}
         </button>
+        {exporting && (
+          <span className="flex items-center gap-2 text-sm text-neutral-400">
+            <span className="h-1.5 w-32 overflow-hidden rounded-full bg-neutral-800">
+              <span
+                className="block h-full bg-neutral-200"
+                style={{ width: `${Math.round(progress * 100)}%` }}
+              />
+            </span>
+            {Math.round(progress * 100)}%
+          </span>
+        )}
         <span className="text-sm text-neutral-500">
           {ready ? 'Capturing' : 'Starting capture...'}
         </span>
+        <span className="text-sm text-neutral-500">
+          {region === null ? source.name : 'Region'}
+        </span>
       </div>
 
-      <div className="mt-6 max-w-2xl overflow-hidden rounded-lg border border-neutral-800 bg-black">
+      <div className="mt-6 max-w-3xl overflow-hidden rounded-lg border border-neutral-800 bg-black">
         <video
           ref={preview}
           autoPlay

@@ -33,9 +33,20 @@ const api = {
   nextSegmentPath: () => ipcRenderer.invoke('session:segment-path'),
   writeChunk: (relativePath: string, bytes: ArrayBuffer) =>
     ipcRenderer.invoke('session:write-chunk', relativePath, bytes),
+  finishSession: (durationSeconds: number) =>
+    ipcRenderer.invoke('session:finish', durationSeconds),
+  onExportProgress: (handler: (fraction: number) => void) => {
+    // Drop the event argument, which carries sender and with it ipcRenderer.
+    ipcRenderer.on('export:progress', (_event, progress: { fraction: number }) => {
+      handler(progress.fraction)
+    })
+  },
 
   // library
   libraryRoot: () => ipcRenderer.invoke('library:root'),
+  listRecordings: () => ipcRenderer.invoke('library:list'),
+  playbackUrl: (folder: string) => ipcRenderer.invoke('library:playback-url', folder),
+  deleteRecording: (folder: string) => ipcRenderer.invoke('library:delete', folder),
 } as const
 
 export type LumenApi = typeof api
