@@ -8,19 +8,26 @@ import { createMainWindow } from './window.js'
 import { registerSchemePrivileges, handleRendererRequests } from './protocol.js'
 import { registerHandlers } from './ipc.js'
 import {
+  listRecordings,
+  playbackUrl,
+  deleteRecording,
+} from '../../modules/library/catalog.js'
+import {
   handleDisplayMediaRequest,
   selectSource,
   clearSelection,
   beginSession,
   writeSegment,
   segmentPath,
+  finishSession,
 } from './display-media.js'
-import { wireModules } from '../../app/container.js'
+import { wireModules, bootstrap } from '../../app/container.js'
+import { findSource } from '../../modules/capture/main/sources.js'
 
 // Must run before app is ready.
 registerSchemePrivileges()
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   handleRendererRequests()
   handleDisplayMediaRequest()
 
@@ -28,7 +35,7 @@ app.whenReady().then(() => {
   registerHandlers(
     wireModules(libraryRoot, {
       'capture:select-source': async (_event, sourceId) => {
-        selectSource(sourceId as string)
+        selectSource(await findSource(sourceId))
       },
       'capture:clear-source': async () => {
         clearSelection()
@@ -38,8 +45,24 @@ app.whenReady().then(() => {
       'session:write-chunk': async (_event, relativePath, bytes) => {
         await writeSegment(relativePath as string, bytes as ArrayBuffer)
       },
+      'session:finish': async (_event, durationSeconds) =>
+        finishSession(durationSeconds as number, (progress) => {
+          BrowserWindow.getAllWindows().forEach((win) =>
+            win.webContents.send('export:progress', progress),
+          )
+        }),
+      'library:list': async () => listRecordings(),
+      'library:playback-url': async (_event, folder) => playbackUrl(folder as string),
+      'library:delete': async (_event, folder) => {
+        await deleteRecording(folder as string)
+      },
     }),
   )
+
+  // The Library has to exist before a Session can be created inside it. This was
+  // written and never called, so a first launch on a machine without the
+  // folder left Start stuck on "Starting..." forever.
+  await bootstrap()
 
   createMainWindow()
 

@@ -101,6 +101,16 @@ export async function deleteInLibrary(relative: string): Promise<void> {
   await fs.rm(resolveInLibrary(relative), { force: true })
 }
 
+/**
+ * Size of a file in the Library, in bytes.
+ *
+ * Resolves and confines the path the same way every other function here does.
+ */
+export async function statInLibrary(relative: string): Promise<number> {
+  const stats = await fs.stat(resolveInLibrary(relative))
+  return stats.size
+}
+
 /** Absolute path to something inside the Library, relative to its root. */
 export function relativeInLibrary(target: string): string {
   return path.relative(libraryRoot(), assertInsideLibrary(target))

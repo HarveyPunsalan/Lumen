@@ -51,3 +51,42 @@ which never ship.
 Still not done: `getPermissions` and `listSources` are stubs, so launching the
 app today would show an empty window and the first IPC call would throw. The
 Week 1 gate is the next task.
+
+## 2026-10-13
+
+Got a real Recording onto disk for the first time, then added the three capture
+modes. Three failures worth remembering, because none of them were visible in a
+passing build.
+
+- **CSP only broke in dev.** `script-src 'self'` blocks the inline script Vite
+  injects for React Fast Refresh, so React never booted and the window was
+  black with no error. Production has no inline script, so the strict CSP was
+  always correct for the shipped app. Fixed with a per-mode CSP that loosens
+  only in development.
+- **The preload was ESM.** A sandboxed renderer cannot load an ES module
+  preload and it fails silently, so `window.lumen` was never defined and the
+  app was black. Renamed to `preload.cts` with its own tsconfig emitting
+  CommonJS.
+- **A shape mismatch that threw every second.** `segmentPath()` returned a
+  bare string, the renderer destructured `{ relativePath }` from it, and every
+  chunk write threw `paths[1] must be of type string`. One line. Errors now
+  render in the UI instead of only reaching the console, because a silent
+  failure cost most of a session.
+
+Two things I said that turned out wrong, worth recording so it does not
+repeat: I reported the recorder as working because typecheck and build passed,
+and neither test proves a video stream starts. I also claimed window selection
+was unbuilt without reading the file. The lesson is that a green build is
+necessary and not sufficient, and that "it is unbuilt" is a claim that needs
+reading before it is said.
+
+Architecture change today: a Region is applied live, during capture, not at
+Export. Everything else is an Export step because it can be changed
+afterwards. A Region cannot, because if the crop ran at Export, whatever was
+inside the rectangle at any moment during the Session would end up in the
+Recording, which is exactly what a user is trying to prevent. ADR 0004 still
+holds for the Frame. See `region-cropper.ts`.
+
+Not yet verified: whether the live Region actually keeps content out of the
+Recording when the user alt-tabs. That needs a manual test with two windows
+side by side, and it is the whole point of the feature.

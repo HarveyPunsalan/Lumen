@@ -8,6 +8,7 @@
  */
 
 import type { Target } from '../types.js'
+import { RegionCropper } from './region-cropper.js'
 
 /** Fired once per timeslice with the blob to append to the current Segment. */
 export type RecorderChunkHandler = (chunk: Blob) => void
@@ -15,6 +16,7 @@ export type RecorderChunkHandler = (chunk: Blob) => void
 export class Recorder {
   private recorder: MediaRecorder | null = null
   private stream: MediaStream | null = null
+  private cropper: RegionCropper | null = null
 
   /**
    * Begin the current Segment. handler receives a blob every `timesliceMs`.
@@ -23,11 +25,15 @@ export class Recorder {
    * The timeslice is not optional. Without it MediaRecorder holds every frame
    * in memory until stopped, which means a two hour Session exhausts RAM and a
    * crash loses the whole Recording. See ADR 0002.
+   *
+   * When the Target carries a Region, the crop runs live and the recorder
+   * encodes the cropped canvas, not the raw stream.
    */
   async beginSegment(
     target: Target,
     handler: RecorderChunkHandler,
     timesliceMs: number,
+    preview?: HTMLVideoElement,
   ): Promise<void> {
     this.dispose()
 
@@ -42,7 +48,15 @@ export class Recorder {
     })
 
     this.stream = stream
-    this.recorder = new MediaRecorder(stream, { mimeType: SEGMENT_MIME_TYPE })
+
+    let encoded = stream
+    if (target.region !== undefined) {
+      this.cropper = RegionCropper.start(stream, target.region)
+      encoded = this.cropper.output
+      if (preview !== undefined) this.cropper.attachPreview(preview)
+    }
+
+    this.recorder = new MediaRecorder(encoded, { mimeType: SEGMENT_MIME_TYPE })
     this.recorder.ondataavailable = (event) => {
       if (event.data.size > 0) handler(event.data)
     }
@@ -52,8 +66,8 @@ export class Recorder {
   /**
    * The live capture stream, for the preview.
    *
-   * Same stream the recorder is encoding, so what the preview shows is exactly
-   * what is being recorded. Null until beginSegment resolves.
+   * The raw Source, not the cropped output, so the preview shows everything on
+   * screen with the Region drawn over it. Null until beginSegment resolves.
    */
   get previewStream(): MediaStream | null {
     return this.stream
@@ -63,6 +77,8 @@ export class Recorder {
   dispose(): void {
     this.recorder?.stop()
     this.recorder = null
+    this.cropper?.stop()
+    this.cropper = null
     for (const track of this.stream?.getTracks() ?? []) track.stop()
     this.stream = null
   }
