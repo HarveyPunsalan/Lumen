@@ -133,7 +133,7 @@ export function RecordingList({ onBack }: { onBack: () => void }) {
                 src={playbackUrls[entry.folder] ?? ''}
                 controls
                 autoPlay
-                className="mt-3 w-full rounded-md bg-black"
+                className="mt-3 max-h-[60vh] w-full rounded-md bg-black object-contain"
               />
             )}
           </li>

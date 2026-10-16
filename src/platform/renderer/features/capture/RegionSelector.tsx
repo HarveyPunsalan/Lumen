@@ -36,6 +36,179 @@ const HANDLES: ReadonlyArray<{ id: Handle; x: number; y: number; cursor: string 
 /** How close the pointer has to be to a handle to grab it, in CSS pixels. */
 const GRAB_RADIUS = 8
 
+/**
+ * Grip shapes, sized to what can actually be grabbed.
+ *
+ * macOS draws window grips as short bars rather than dots, and the orientation
+ * tells you which way the edge moves before you touch it. Squaring them all up
+ * made a corner and an edge indistinguishable, which is the thing this replaces.
+ *
+ * The lengths are not a matter of taste. handleAt() grabs anything within
+ * GRAB_RADIUS of the handle point, so the grabbable box is 2 * GRAB_RADIUS
+ * square. An edge grip is that wide, and a corner's arms reach half of it, so
+ * no visible part of a grip sits outside the area that responds to a click. A
+ * grip drawn larger than its hit area is a lie the user discovers by reaching
+ * for a corner and getting nothing.
+ */
+const EDGE_GRIP = GRAB_RADIUS * 2
+const CORNER_ARM = GRAB_RADIUS
+const GRIP_THICKNESS = 2
+
+/** One dash, then a gap, repeated. Reads as stitching rather than a solid bar. */
+const DASH = 3
+const GAP = 2
+
+/** Perimeter dashes. Larger than a grip, because they cross the whole Region. */
+const EDGE_DASH = 6
+const EDGE_GAP = 4
+const EDGE_THICKNESS = 2
+
+interface GripRect {
+  readonly key: string
+  readonly left: number
+  readonly top: number
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * Dash offsets along one edge of the Region.
+ *
+ * The count is derived from the edge length rather than fixed, so a long edge
+ * gets more dashes and a short one fewer, and nothing is tied to the size of
+ * any particular display. The spacing absorbs whatever is left over and the run
+ * is centred, so the end gap equals the middle gap and each edge finishes
+ * exactly on its corner. That is what makes the four edges meet instead of
+ * stopping a few pixels short or overshooting.
+ */
+function edgeDashOffsets(length: number): number[] {
+  if (length <= 0) return []
+
+  const count = Math.max(1, Math.round((length + EDGE_GAP) / (EDGE_DASH + EDGE_GAP)))
+  if (count === 1) return [(length - EDGE_DASH) / 2]
+
+  const step = (length - EDGE_DASH) / (count - 1)
+  const start = (length - (EDGE_DASH + (count - 1) * step)) / 2
+
+  const offsets: number[] = []
+  for (let i = 0; i < count; i += 1) offsets.push(start + i * step)
+  return offsets
+}
+
+/** Every dash around the Region perimeter, in preview coordinates. */
+function perimeterDashes(region: Region): GripRect[] {
+  const { x, y, width, height } = region
+  const rects: GripRect[] = []
+
+  const push = (
+    key: string,
+    left: number,
+    top: number,
+    w: number,
+    h: number,
+  ): void => {
+    rects.push({ key, left, top, width: w, height: h })
+  }
+
+  // Top and bottom run left to right, sitting on the edge line.
+  for (const offset of edgeDashOffsets(width)) {
+    push(`t-${String(offset)}`, x + offset, y - EDGE_THICKNESS / 2, EDGE_DASH, EDGE_THICKNESS)
+    push(
+      `b-${String(offset)}`,
+      x + offset,
+      y + height - EDGE_THICKNESS / 2,
+      EDGE_DASH,
+      EDGE_THICKNESS,
+    )
+  }
+
+  // Left and right run top to bottom, inset from the corners so the horizontal
+  // edges own the corner and the shape closes rather than double-drawing it.
+  for (const offset of edgeDashOffsets(height - EDGE_DASH)) {
+    const top = y + EDGE_DASH + offset
+    // On a small Region the inset leaves too little room for a full dash, and
+    // an unclamped dash would run past the corner the top edge already drew.
+    const length = Math.max(0, Math.min(EDGE_DASH, y + height - top))
+    if (length === 0) continue
+
+    push(`l-${String(offset)}`, x - EDGE_THICKNESS / 2, top, EDGE_THICKNESS, length)
+    push(
+      `r-${String(offset)}`,
+      x + width - EDGE_THICKNESS / 2,
+      top,
+      EDGE_THICKNESS,
+      length,
+    )
+  }
+
+  return rects
+}
+
+/**
+ * Split a span into centred dashes, so a grip reads as a row of stitches
+ * instead of one solid bar.
+ *
+ * The run is centred on the span, so a 13px stitch inside a 16px grip leaves
+ * the same margin on both sides. When the span is too short for the dash and
+ * gap to repeat, it falls back to a single dash rather than drawing nothing,
+ * because an edge with no grip is worse than a plain one.
+ */
+function stitch(span: number): number[] {
+  const period = DASH + GAP
+  const count = Math.max(1, Math.floor((span + GAP) / period))
+  const used = count * DASH + (count - 1) * GAP
+  const start = (span - used) / 2
+
+  const offsets: number[] = []
+  for (let i = 0; i < count; i += 1) offsets.push(start + i * period)
+  return offsets
+}
+
+/**
+ * The grips for one handle, in preview coordinates.
+ *
+ * A corner is two stitched arms meeting at the handle point and opening inward,
+ * toward the Region, which is how a macOS corner grip reads. An edge is one
+ * stitched run centred on the handle point, along the edge it moves.
+ */
+function gripRects(entry: (typeof HANDLES)[number], region: Region): GripRect[] {
+  const cx = region.x + region.width * entry.x
+  const cy = region.y + region.height * entry.y
+  const isCorner = entry.x !== 0.5 && entry.y !== 0.5
+
+  // A stitched run along the horizontal axis, spanning span and starting at from.
+  const horizontal = (from: number, span: number, tag: string): GripRect[] =>
+    stitch(span).map((offset, index) => ({
+      key: `${entry.id}-${tag}${String(index)}`,
+      left: from + offset,
+      top: cy - GRIP_THICKNESS / 2,
+      width: DASH,
+      height: GRIP_THICKNESS,
+    }))
+
+  // A stitched run along the vertical axis, spanning span and starting at from.
+  const vertical = (from: number, span: number, tag: string): GripRect[] =>
+    stitch(span).map((offset, index) => ({
+      key: `${entry.id}-${tag}${String(index)}`,
+      left: cx - GRIP_THICKNESS / 2,
+      top: from + offset,
+      width: GRIP_THICKNESS,
+      height: DASH,
+    }))
+
+  if (!isCorner) {
+    if (entry.x === 0.5) return horizontal(cx - EDGE_GRIP / 2, EDGE_GRIP, 'bar')
+    return vertical(cy - EDGE_GRIP / 2, EDGE_GRIP, 'bar')
+  }
+
+  // Both arms start at the corner and reach inward, so the grip opens into the
+  // Region rather than out past the preview.
+  const hFrom = entry.x === 0 ? cx : cx - CORNER_ARM
+  const vFrom = entry.y === 0 ? cy : cy - CORNER_ARM
+
+  return [...horizontal(hFrom, CORNER_ARM, 'h'), ...vertical(vFrom, CORNER_ARM, 'v')]
+}
+
 function normalise(a: Point, b: Point): Region {
   return {
     x: Math.min(a.x, b.x),
@@ -236,18 +409,33 @@ export function RegionSelector({
         <img src={screen.thumbnail} alt="" className="block w-full" draggable={false} />
         {region !== null && (
           <>
-            <div className="pointer-events-none absolute border-2 border-red-500" style={region} />
-            {HANDLES.map((entry) => (
+            {perimeterDashes(region).map((dash) => (
               <span
-                key={entry.id}
-                className="absolute h-3 w-3 rounded-sm border border-neutral-900 bg-white"
+                key={dash.key}
+                className="pointer-events-none absolute rounded-full bg-red-500"
                 style={{
-                  left: region.x + region.width * entry.x - 6,
-                  top: region.y + region.height * entry.y - 6,
-                  cursor: entry.cursor,
+                  left: dash.left,
+                  top: dash.top,
+                  width: dash.width,
+                  height: dash.height,
                 }}
               />
             ))}
+            {HANDLES.flatMap((entry) =>
+              gripRects(entry, region).map((grip) => (
+                <span
+                  key={grip.key}
+                  className="absolute rounded-full bg-white ring-1 ring-neutral-900/70 transition-colors duration-100 hover:bg-red-500"
+                  style={{
+                    left: grip.left,
+                    top: grip.top,
+                    width: grip.width,
+                    height: grip.height,
+                    cursor: entry.cursor,
+                  }}
+                />
+              )),
+            )}
           </>
         )}
       </div>

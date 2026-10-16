@@ -80,6 +80,10 @@ export function SourcePicker() {
   const [exporting, setExporting] = useState(false)
   const [progress, setProgress] = useState(0)
   const recorder = useRef<Recorder | null>(null)
+  // True from the moment Stop is pressed until the next Start. Drives the
+  // frozen REC badge, so the clock stops climbing during Export.
+  const [stopping, setStopping] = useState(false)
+  const stoppingRef = useRef(false)
 
   useEffect(() => {
     window.lumen.onExportProgress(setProgress)
@@ -124,6 +128,8 @@ export function SourcePicker() {
 
   async function start(source: Source) {
     try {
+      stoppingRef.current = false
+      setStopping(false)
       setStatus('starting')
       setError(null)
       // Only the id is sent. Main re-reads the live Source list and resolves the
@@ -142,6 +148,14 @@ await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
   }
 
   const stop = useCallback(async (seconds: number) => {
+    // A ref, not state. Two fast clicks both read the same state value, so
+    // only a ref stops the second Export on the same Session.
+    if (stoppingRef.current) return
+    stoppingRef.current = true
+    // Freezes the REC number and stops the pulse. Export has not run yet, so
+    // this has to be set before the await below, not after it resolves.
+    setStopping(true)
+
     recorder.current?.dispose()
     recorder.current = null
     await window.lumen.clearSource()
@@ -192,6 +206,7 @@ await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
         recorderRef={recorder}
         folder={folder}
         exporting={exporting}
+        stopping={stopping}
         progress={progress}
         onStop={stop}
         onError={(cause: unknown) => {
@@ -302,6 +317,7 @@ function RecordingControls({
   recorderRef,
   folder,
   exporting,
+  stopping,
   progress,
   onStop,
   onError,
@@ -311,6 +327,7 @@ function RecordingControls({
   recorderRef: React.RefObject<Recorder | null>
   folder: string | null
   exporting: boolean
+  stopping: boolean
   progress: number
   onStop: (seconds: number) => Promise<void>
   onError: (cause: unknown) => void
@@ -318,6 +335,7 @@ function RecordingControls({
   const [elapsed, setElapsed] = useState(0)
   const [ready, setReady] = useState(false)
   const preview = useRef<HTMLVideoElement | null>(null)
+  const clock = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     const recorder = new Recorder()
@@ -354,19 +372,37 @@ function RecordingControls({
       }
     })()
 
-    const timer = setInterval(() => setElapsed((s) => s + 1), 1000)
+    clock.current = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => {
       stopped = true
-      clearInterval(timer)
+      if (clock.current !== null) clearInterval(clock.current)
+      clock.current = null
       recorder.dispose()
     }
   }, [source, region, recorderRef, onError])
 
+  // The REC clock belonged to the effect above, which only cleaned up when this
+  // screen unmounted. Unmounting waits for Export, so the timer kept counting
+  // through the whole encode and the badge looked like it was still recording.
+  // Stop clears it the moment it is pressed. The number is left alone, because
+  // it is the real length of the Recording and Export still needs it.
+  useEffect(() => {
+    if (!stopping) return
+    if (clock.current !== null) clearInterval(clock.current)
+    clock.current = null
+  }, [stopping])
+
   return (
     <div className="p-8">
       <div className="flex items-center gap-3">
-        <span className="flex items-center gap-2 rounded-full bg-red-600 px-3 py-1.5 text-sm font-medium text-white">
-          <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+        <span
+          className={`flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium text-white ${
+            stopping ? 'bg-neutral-700' : 'bg-red-600'
+          }`}
+        >
+          <span
+            className={`h-2 w-2 rounded-full bg-white ${stopping ? '' : 'animate-pulse'}`}
+          />
           REC {String(Math.floor(elapsed / 60)).padStart(2, '0')}:
           {String(elapsed % 60).padStart(2, '0')}
         </span>
