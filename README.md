@@ -58,9 +58,9 @@ export ask you to unlock first.
 
 ## For developers
 
-Architecture and decisions live in [CONTEXT.md](./CONTEXT.md) and
-[docs/adr/](./docs/adr/). Security controls are in
-[SECURITY.md](./SECURITY.md).
+What the product is and must be lives in [PRD.md](./PRD.md). Architecture and
+decisions live in [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
+Security controls are in [SECURITY.md](./SECURITY.md).
 
 Built with Electron, React, TypeScript, and ffmpeg. Licensed MIT.
 
