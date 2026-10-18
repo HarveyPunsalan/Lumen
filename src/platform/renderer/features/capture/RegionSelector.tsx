@@ -2,8 +2,9 @@
  * Drag a rectangle over a preview of the Display to choose a Region.
  *
  * The box only appears while the mouse is held, not when it merely moves over
- * the preview. Once it exists it can be resized from eight handles and moved
- * from the inside, so a slightly wrong box is adjusted rather than redrawn.
+ * the preview. Once it exists it can be resized from eight handles, or four
+ * corners on a small box, and moved from the inside, so a slightly wrong box is
+ * adjusted rather than redrawn.
  * Any size is allowed. There is no snapping.
  *
  * Coordinates come back in the Source's own pixels, because a Retina display
@@ -35,6 +36,35 @@ const HANDLES: ReadonlyArray<{ id: Handle; x: number; y: number; cursor: string 
 
 /** How close the pointer has to be to a handle to grab it, in CSS pixels. */
 const GRAB_RADIUS = 8
+
+/**
+ * Below this size, only the corners resize.
+ *
+ * Eight grips is too many for a small box. Each one grabs a 16px square, so on
+ * a 30px box the edge grips cover 81 percent of the inside and there is nothing
+ * left to press to move it. Corners only keeps a grabbable middle: the same
+ * 30px box goes from 19 percent movable to 68.
+ */
+const SMALL_REGION = 48
+
+/**
+ * The grips that answer on this box.
+ *
+ * The hit test and the drawing both use this, so a grip is never drawn where it
+ * cannot be grabbed, and never hidden where it can.
+ */
+function activeHandles(region: Region): ReadonlyArray<(typeof HANDLES)[number]> {
+  if (Math.min(region.width, region.height) < SMALL_REGION) {
+    return HANDLES.filter((entry) => entry.x !== 0.5 && entry.y !== 0.5)
+  }
+  return HANDLES
+}
+
+/** How close a press has to be to grab a grip on this box. Shrinks on a very
+ *  small box so the middle never disappears. */
+function grabRadius(region: Region): number {
+  return Math.min(GRAB_RADIUS, Math.max(3, Math.min(region.width, region.height) / 3))
+}
 
 /**
  * Grip shapes, sized to what can actually be grabbed.
@@ -171,10 +201,20 @@ function stitch(span: number): number[] {
  * toward the Region, which is how a macOS corner grip reads. An edge is one
  * stitched run centred on the handle point, along the edge it moves.
  */
-function gripRects(entry: (typeof HANDLES)[number], region: Region): GripRect[] {
+function gripRects(
+  entry: (typeof HANDLES)[number],
+  region: Region,
+  reach: number,
+): GripRect[] {
   const cx = region.x + region.width * entry.x
   const cy = region.y + region.height * entry.y
   const isCorner = entry.x !== 0.5 && entry.y !== 0.5
+
+  // Never drawn bigger than what answers a click. On a box small enough to
+  // shrink the grab radius, an unchanged 16px grip would stick out past the
+  // area that can grab it, which is the lie the sizes above exist to avoid.
+  const bar = Math.min(EDGE_GRIP, reach * 2)
+  const arm = Math.min(CORNER_ARM, reach)
 
   // A stitched run along the horizontal axis, spanning span and starting at from.
   const horizontal = (from: number, span: number, tag: string): GripRect[] =>
@@ -197,16 +237,16 @@ function gripRects(entry: (typeof HANDLES)[number], region: Region): GripRect[] 
     }))
 
   if (!isCorner) {
-    if (entry.x === 0.5) return horizontal(cx - EDGE_GRIP / 2, EDGE_GRIP, 'bar')
-    return vertical(cy - EDGE_GRIP / 2, EDGE_GRIP, 'bar')
+    if (entry.x === 0.5) return horizontal(cx - bar / 2, bar, 'bar')
+    return vertical(cy - bar / 2, bar, 'bar')
   }
 
   // Both arms start at the corner and reach inward, so the grip opens into the
   // Region rather than out past the preview.
-  const hFrom = entry.x === 0 ? cx : cx - CORNER_ARM
-  const vFrom = entry.y === 0 ? cy : cy - CORNER_ARM
+  const hFrom = entry.x === 0 ? cx : cx - arm
+  const vFrom = entry.y === 0 ? cy : cy - arm
 
-  return [...horizontal(hFrom, CORNER_ARM, 'h'), ...vertical(vFrom, CORNER_ARM, 'v')]
+  return [...horizontal(hFrom, arm, 'h'), ...vertical(vFrom, arm, 'v')]
 }
 
 function normalise(a: Point, b: Point): Region {
@@ -265,6 +305,16 @@ export function RegionSelector({
   const [handle, setHandle] = useState<Handle | null>(null)
   const [origin, setOrigin] = useState<Point | null>(null)
 
+  /**
+   * Where the pointer and the Region were when a move started.
+   *
+   * A move is measured from the press, never from the previous move. Measuring
+   * from the live Region meant every event added the whole distance from the
+   * press on top of what was already added, because the Region it read had
+   * already moved. A 100px drag travelled 1850px, which is the magnet feeling.
+   */
+  const moveStart = useRef<{ pointer: Point; region: Region } | null>(null)
+
   const pointOf = useCallback((clientX: number, clientY: number): Point => {
     const box = surface.current?.getBoundingClientRect()
     if (box === undefined || box === null) return { x: 0, y: 0 }
@@ -280,10 +330,11 @@ export function RegionSelector({
     const box = surface.current?.getBoundingClientRect()
     if (box === undefined || box === null) return null
 
-    for (const entry of HANDLES) {
+    const reach = grabRadius(region)
+    for (const entry of activeHandles(region)) {
       const cx = region.x + region.width * entry.x
       const cy = region.y + region.height * entry.y
-      if (Math.abs(point.x - cx) <= GRAB_RADIUS && Math.abs(point.y - cy) <= GRAB_RADIUS) {
+      if (Math.abs(point.x - cx) <= reach && Math.abs(point.y - cy) <= reach) {
         return entry.id
       }
     }
@@ -294,26 +345,39 @@ export function RegionSelector({
     return inside ? 'move' : null
   }
 
-  function onMouseDown(event: React.MouseEvent) {
+  function onPointerDown(event: React.PointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) return
+
+    // Pointer capture keeps the drag alive when the pointer leaves the preview.
+    // The move handler used to be bound to the preview alone, so dragging past
+    // its edge froze the box until the pointer came back. Release needs no
+    // listener either, the capture delivers it wherever it happens.
+    event.currentTarget.setPointerCapture(event.pointerId)
+
     const point = pointOf(event.clientX, event.clientY)
+    const grabbed = handleAt(point)
     setPressed(true)
-    setHandle(handleAt(point))
+    setHandle(grabbed)
     setOrigin(point)
+    moveStart.current =
+      grabbed === 'move' && region !== null ? { pointer: point, region } : null
   }
 
   // Only follows the pointer while a button is held. That is what stops the box
   // drawing itself as the mouse merely moves across the preview.
-  function onMouseMove(event: React.MouseEvent) {
+  function onPointerMove(event: React.PointerEvent<HTMLDivElement>) {
     if (!pressed || origin === null) return
     const point = pointOf(event.clientX, event.clientY)
     const box = surface.current?.getBoundingClientRect()
     if (box === undefined || box === null) return
 
-    if (handle === 'move' && region !== null) {
+    const start = moveStart.current
+    if (handle === 'move' && start !== null) {
+      const from = start.region
       setRegion({
-        ...region,
-        x: Math.min(Math.max(point.x - origin.x + region.x, 0), box.width - region.width),
-        y: Math.min(Math.max(point.y - origin.y + region.y, 0), box.height - region.height),
+        ...from,
+        x: Math.min(Math.max(from.x + point.x - start.pointer.x, 0), box.width - from.width),
+        y: Math.min(Math.max(from.y + point.y - start.pointer.y, 0), box.height - from.height),
       })
       return
     }
@@ -327,10 +391,11 @@ export function RegionSelector({
     setRegion(normalise(origin, point))
   }
 
-  function onMouseUp() {
+  function onPointerUp() {
     setPressed(false)
     setHandle(null)
     setOrigin(null)
+    moveStart.current = null
   }
 
   /** Arrow keys nudge an edge by one pixel. Shift nudges ten. */
@@ -384,12 +449,15 @@ export function RegionSelector({
   }
 
   useEffect(() => {
-    const up = () => onMouseUp()
-    window.addEventListener('mouseup', up)
     // The panel owns the arrow keys, so it takes focus without an outline.
+    // Releasing the mouse needs no listener here: the capture taken on press
+    // delivers the release wherever it happens, inside or outside the window.
     container.current?.focus()
-    return () => window.removeEventListener('mouseup', up)
   }, [])
+
+  // The grips drawn and the grips that answer a press are sized from this one
+  // number, so they can never disagree.
+  const reach = region === null ? GRAB_RADIUS : grabRadius(region)
 
   return (
     <div ref={container} className="p-8" tabIndex={-1} onKeyDown={onKeyDown}>
@@ -401,9 +469,10 @@ export function RegionSelector({
 
       <div
         ref={surface}
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         className="relative mt-6 w-full max-w-3xl cursor-crosshair overflow-hidden rounded-lg border border-neutral-800 bg-black select-none"
       >
         <img src={screen.thumbnail} alt="" className="block w-full" draggable={false} />
@@ -421,8 +490,8 @@ export function RegionSelector({
                 }}
               />
             ))}
-            {HANDLES.flatMap((entry) =>
-              gripRects(entry, region).map((grip) => (
+            {activeHandles(region).flatMap((entry) =>
+              gripRects(entry, region, reach).map((grip) => (
                 <span
                   key={grip.key}
                   className="absolute rounded-full bg-white ring-1 ring-neutral-900/70 transition-colors duration-100 hover:bg-red-500"

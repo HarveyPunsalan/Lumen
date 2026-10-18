@@ -85,9 +85,18 @@ export function SourcePicker() {
   const [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
 
-  useEffect(() => {
-    window.lumen.onExportProgress(setProgress)
+  // Stable on purpose. An inline arrow here is a new function on every render,
+  // and the capture effect in RecordingControls depends on it, so every render
+  // restarted the capture and the REC clock. Export progress re-renders
+  // continuously, which is what made the clock keep climbing after Stop and
+  // left duplicate captures running.
+  const failRecording = useCallback((cause: unknown) => {
+    setError(message(cause))
+    setStatus('error')
   }, [])
+
+  // Returns its unsubscribe, so a remount does not leave a listener behind.
+  useEffect(() => window.lumen.onExportProgress(setProgress), [])
 
   useEffect(() => {
     void window.lumen
@@ -209,10 +218,7 @@ await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
         stopping={stopping}
         progress={progress}
         onStop={stop}
-        onError={(cause: unknown) => {
-          setError(message(cause))
-          setStatus('error')
-        }}
+        onError={failRecording}
       />
     )
   }
@@ -336,6 +342,14 @@ function RecordingControls({
   const [ready, setReady] = useState(false)
   const preview = useRef<HTMLVideoElement | null>(null)
   const clock = useRef<ReturnType<typeof setInterval> | null>(null)
+  // The capture effect talks to the latest handler through a ref instead of
+  // depending on the prop. It synchronises with a MediaRecorder, so the only
+  // things allowed to restart it are the Source and the Region.
+  const onErrorRef = useRef(onError)
+
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
 
   useEffect(() => {
     const recorder = new Recorder()
@@ -368,7 +382,7 @@ function RecordingControls({
       } catch (cause) {
         if (stopped) return
         recorder.dispose()
-        onError(cause)
+        onErrorRef.current(cause)
       }
     })()
 
@@ -379,7 +393,7 @@ function RecordingControls({
       clock.current = null
       recorder.dispose()
     }
-  }, [source, region, recorderRef, onError])
+  }, [source, region, recorderRef])
 
   // The REC clock belonged to the effect above, which only cleaned up when this
   // screen unmounted. Unmounting waits for Export, so the timer kept counting

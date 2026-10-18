@@ -19,6 +19,14 @@ export class Recorder {
   private cropper: RegionCropper | null = null
 
   /**
+   * Whether dispose() has run. getUserMedia does not resolve immediately, so a
+   * dispose during the wait has nothing to stop, and the stream that arrives
+   * afterwards belongs to nobody. Without this flag that stream records until
+   * the app quits, burning CPU and holding the Display.
+   */
+  private disposed = false
+
+  /**
    * Begin the current Segment. handler receives a blob every `timesliceMs`.
    * Stop and re-start to switch Target; that is what a Segment boundary is.
    *
@@ -36,6 +44,7 @@ export class Recorder {
     preview?: HTMLVideoElement,
   ): Promise<void> {
     this.dispose()
+    this.disposed = false
 
     const stream = await navigator.mediaDevices.getUserMedia({
       video: {
@@ -46,6 +55,13 @@ export class Recorder {
       } as unknown as MediaTrackConstraints,
       audio: false,
     })
+
+    // dispose() ran while the stream was being acquired. Nothing owns this any
+    // more, so release it rather than recording forever.
+    if (this.disposed) {
+      for (const track of stream.getTracks()) track.stop()
+      return
+    }
 
     this.stream = stream
 
@@ -75,6 +91,7 @@ export class Recorder {
 
   /** Release the capture stream. Called on Stop, and on every failure path. */
   dispose(): void {
+    this.disposed = true
     this.recorder?.stop()
     this.recorder = null
     this.cropper?.stop()
