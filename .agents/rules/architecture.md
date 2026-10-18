@@ -21,12 +21,17 @@ process. Neither is committed.
 ## The dependency rule
 
 > A module imports from `kernel` and from its own folder. Nothing else.
-> Modules never import each other. `app/container.ts` is the only place they
-> are wired together.
+> Modules never import another module's values. Sharing a public type is
+> allowed. `app/` is the only place modules are wired together.
 
 This is the whole architecture. If a module needs something from another
 module, either that need is wrong, or the code belongs in the module that
 owns the thing.
+
+One exception, because `MediaRecorder` is a browser API: the renderer half of
+`capture` (`modules/capture/renderer/`) only runs in the renderer, so
+`platform/renderer/` imports it directly. Nothing else in a module is visible
+to `platform/` except its public types.
 
 ## Modules
 
@@ -37,8 +42,8 @@ owns the thing.
 | `frame` | The camera track, corner placement, background treatment. |
 | `export` | ffmpeg. Concat, crop, overlay, trim, encode. |
 | `library` | Paths, encryption, listing, deletion, size. |
-| `platform/main` | Electron wiring. Registers IPC handlers that call module functions. |
-| `platform/renderer` | UI. Calls the preload API. Never imports a module directly. |
+| `platform/main` | Electron wiring: bootstrap, window, protocol, ipc, preload, display media. Registers the handlers `app/` hands it. |
+| `platform/renderer` | UI. Calls the preload API. Imports `capture`'s public types and its `renderer/` half, nothing else. |
 
 ## Rules
 
@@ -46,12 +51,20 @@ owns the thing.
 constructor argument. A module-level `let` means the thing cannot be tested
 without launching Electron, and it means two instances cannot exist.
 
+Two variables exist deliberately, and they are the entire exception.
+`library/paths.ts` holds the Library root in `root`, set once at startup by the
+composition root, because `app.getPath` is only valid after the app is ready
+and every path helper needs it. `library/crypto.ts` holds `derivedKey` for the
+Lock that is not implemented yet, and `isLocked` already reads it. Nothing else
+may add module-level state.
+
 **Handlers register explicitly, never on import.** Importing a file must not
-have side effects. `registerCaptureHandlers(ipcMain)` is called from the
-bootstrap, not fired by being imported.
+have side effects. `registerHandlers(handlers)` is called from `main.ts`, not
+fired by being imported.
 
 **`platform/` knows the domain only as types.** It may import a module's
-public type. It may not reach into a module's internals.
+public type. It may not reach into a module's internals. The one exception is
+the `capture` renderer half, stated above.
 
 **The renderer talks to the main process only through the preload API.** No
 `ipcRenderer`, no `require`, no direct module imports. The preload surface is

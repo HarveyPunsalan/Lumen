@@ -8,9 +8,7 @@
 
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
-import { ensureSessionFolder } from '../library/paths.js'
 import type { FrameSettings } from '../frame/types.js'
-import { DEFAULT_FRAME_SETTINGS } from '../frame/types.js'
 
 /**
  * One uninterrupted run of the recorder inside a Session. Switching Target
@@ -32,23 +30,38 @@ export interface SessionInfo {
   readonly frame: FrameSettings
 }
 
+/**
+ * What a Session needs from its caller.
+ *
+ * The folder creator is injected rather than imported, so this module never
+ * reaches into library/. The composition root passes it in. See
+ * architecture.md, The dependency rule.
+ */
+export interface SessionOptions {
+  readonly libraryRoot: string
+  readonly ensureFolder: (folder: string) => Promise<string>
+  readonly frame: FrameSettings
+}
+
 export class Session {
   private readonly segments: Segment[] = []
   private reserved = 0
-  private frame: FrameSettings = DEFAULT_FRAME_SETTINGS
 
   private constructor(
     readonly id: string,
     readonly folder: string,
     readonly startedAt: number,
+    private frame: FrameSettings,
   ) {}
 
-  static async create(libraryRoot: string): Promise<Session> {
+  static async create(options: SessionOptions): Promise<Session> {
     const id = randomUUID()
     const startedAt = Date.now()
     const stamp = new Date(startedAt).toISOString().replace(/[:.]/g, '-').slice(0, 19)
-    const folder = await ensureSessionFolder(path.join(libraryRoot, `${stamp}_${id.slice(0, 8)}`))
-    return new Session(id, folder, startedAt)
+    const folder = await options.ensureFolder(
+      path.join(options.libraryRoot, `${stamp}_${id.slice(0, 8)}`),
+    )
+    return new Session(id, folder, startedAt, options.frame)
   }
 
   /**

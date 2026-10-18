@@ -11,7 +11,7 @@
 // preload, so this file is compiled as .cts and must not use import syntax.
 // `moduleResolution: node16/nodenext` would reject import assignment here,
 // which is why tsconfig.preload.json uses plain node resolution.
-import type { ContextBridge, IpcRenderer } from 'electron'
+import type { ContextBridge, IpcRenderer, IpcRendererEvent } from 'electron'
 
 const { contextBridge, ipcRenderer } = require('electron') as {
   contextBridge: ContextBridge
@@ -37,9 +37,15 @@ const api = {
     ipcRenderer.invoke('session:finish', durationSeconds),
   onExportProgress: (handler: (fraction: number) => void) => {
     // Drop the event argument, which carries sender and with it ipcRenderer.
-    ipcRenderer.on('export:progress', (_event, progress: { fraction: number }) => {
+    const listener = (_event: IpcRendererEvent, progress: { fraction: number }): void => {
       handler(progress.fraction)
-    })
+    }
+    ipcRenderer.on('export:progress', listener)
+    // Returned so the renderer can unsubscribe. Without it every mount adds a
+    // listener that outlives the screen it belonged to.
+    return () => {
+      ipcRenderer.removeListener('export:progress', listener)
+    }
   },
 
   // library
