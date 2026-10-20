@@ -42,3 +42,40 @@ export function lumenError(code: ErrorCode, message: string, remedy?: string): L
 export function notImplemented(what: string): LumenError {
   return lumenError(ErrorCode.NotImplemented, `${what} is not implemented yet.`)
 }
+
+/**
+ * LumenError travels through IPC as one string. Electron flattens a thrown
+ * plain object into "[object Object]", and an Error instance carries only a
+ * message, so main packs the payload and the renderer unpacks it. Electron may
+ * prepend its own text before the payload, which is why decode searches for
+ * the prefix instead of matching against the start of the string.
+ */
+const LUMEN_ERROR_PREFIX = 'LUMEN_ERROR:'
+
+export function isLumenError(value: unknown): value is LumenError {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'code' in value &&
+    typeof (value as { code: unknown }).code === 'string' &&
+    'message' in value &&
+    typeof (value as { message: unknown }).message === 'string'
+  )
+}
+
+/** Pack a LumenError into one string for the trip through IPC. */
+export function encodeLumenError(error: LumenError): string {
+  return `${LUMEN_ERROR_PREFIX}${JSON.stringify(error)}`
+}
+
+/** Unpack what encodeLumenError sent, or undefined for any other text. */
+export function decodeLumenError(text: string): LumenError | undefined {
+  const start = text.indexOf(LUMEN_ERROR_PREFIX)
+  if (start === -1) return undefined
+  try {
+    const parsed: unknown = JSON.parse(text.slice(start + LUMEN_ERROR_PREFIX.length))
+    return isLumenError(parsed) ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}

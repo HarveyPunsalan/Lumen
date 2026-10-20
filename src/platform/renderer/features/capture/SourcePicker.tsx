@@ -9,6 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { decodeLumenError } from '@lumen/kernel/errors'
 import type { CaptureMode, Region, Source } from '@lumen/modules/capture/types'
 import {
   Recorder,
@@ -19,7 +20,13 @@ import { RegionSelector } from './RegionSelector'
 type Status = 'idle' | 'choosing-region' | 'starting' | 'recording' | 'saved' | 'error'
 
 function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause)
+  // Main-side LumenErrors arrive packed inside the flat message text, because
+  // a plain object thrown across IPC is flattened to "[object Object]".
+  if (cause instanceof Error) {
+    const decoded = decodeLumenError(cause.message)
+    return decoded ? decoded.message : cause.message
+  }
+  return String(cause)
 }
 
 /**
@@ -69,6 +76,17 @@ const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; hint: string }> =
   },
 ]
 
+/**
+ * How often the window picker asks for windows while it is open.
+ *
+ * macOS returns a different subset on each ask, and two asks closer together
+ * than this tend to return the same subset. Three extra asks, after the one at
+ * mount, are enough to collect the windows Electron's three second budget
+ * missed. See sources.ts.
+ */
+const WINDOW_ASK_GAP_MS = 3_500
+const WINDOW_ASKS = 3
+
 export function SourcePicker() {
   const [sources, setSources] = useState<Source[]>([])
   const [mode, setMode] = useState<CaptureMode>('whole-screen')
@@ -76,6 +94,8 @@ export function SourcePicker() {
   const [error, setError] = useState<string | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
   const [picked, setPicked] = useState<Source | null>(null)
+  /** True while the window picker is still gathering windows. */
+  const [looking, setLooking] = useState(false)
   const [region, setRegion] = useState<Region | null>(null)
   const [exporting, setExporting] = useState(false)
   const [progress, setProgress] = useState(0)
@@ -98,6 +118,8 @@ export function SourcePicker() {
   // Returns its unsubscribe, so a remount does not leave a listener behind.
   useEffect(() => window.lumen.onExportProgress(setProgress), [])
 
+  // Screens are reliable and arrive in one ask. Windows do not; the window
+  // picker asks again while it is open. See the effect below.
   useEffect(() => {
     void window.lumen
       .listSources()
@@ -107,6 +129,42 @@ export function SourcePicker() {
         setStatus('error')
       })
   }, [])
+
+  // macOS hands back a different subset of windows on each ask. Ask a few more
+  // times while the window picker is open, spaced far enough apart for the
+  // enumerations not to overlap, and let the merged directory fill the grid.
+  // Never ask while a capture is starting or running: enumerating windows
+  // mid-capture is unnecessary and can interfere with the stream.
+  useEffect(() => {
+    if (mode !== 'selected-window' || status !== 'idle') return
+
+    setLooking(true)
+    let cancelled = false
+    let asks = 0
+
+    const timer = setInterval(() => {
+      asks += 1
+      if (asks >= WINDOW_ASKS) {
+        clearInterval(timer)
+        setLooking(false)
+      }
+      void window.lumen
+        .listSources()
+        .then((next) => {
+          if (!cancelled) setSources(next)
+        })
+        .catch(() => {
+          // The first ask reports errors. A failed refresh only means no new
+          // windows this round, so the tiles already shown stay.
+        })
+    }, WINDOW_ASK_GAP_MS)
+
+    return () => {
+      cancelled = true
+      clearInterval(timer)
+      setLooking(false)
+    }
+  }, [mode, status])
 
   // No Display means Region cannot be drawn, so fall back to the mode list
   // rather than setting state during render.
@@ -135,19 +193,29 @@ export function SourcePicker() {
     setStatus('idle')
   }
 
-  async function start(source: Source) {
+  async function start(target: Source | null) {
     try {
       stoppingRef.current = false
       setStopping(false)
       setStatus('starting')
       setError(null)
-      // Only the id is sent. Main re-reads the live Source list and resolves the
-// rest itself, so the renderer never dictates what Electron is handed.
-await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
+
+      if (target === null) return
+
+      // The id goes first and the title second. On macOS 26 a window id can go
+      // stale between the list and the click, and main resolves the title
+      // against what it enumerated. Main still returns the Source it found, so
+      // the renderer never dictates what Electron is handed.
+      await withTimeout(
+        window.lumen.selectSource(target.id, target.name),
+        'Selecting the source',
+      )
+
       const session = await withTimeout(
         window.lumen.beginSession(),
         'Creating the recording folder',
       )
+      setPicked(target)
       setFolder(session.folder)
       setStatus('recording')
     } catch (cause) {
@@ -165,14 +233,21 @@ await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
     // this has to be set before the await below, not after it resolves.
     setStopping(true)
 
-    recorder.current?.dispose()
-    recorder.current = null
-    await window.lumen.clearSource()
-
     // The Segments become one MP4 here. The user waits for it rather than
     // hunting for a Webm most players refuse to open.
     try {
       setExporting(true)
+
+      // Close the MediaRecorder and wait for its final chunk to reach disk
+      // before main counts the bytes. Without this, a real recording could be
+      // rejected as empty because the last write landed after the check.
+      const active = recorder.current
+      recorder.current = null
+      if (active !== null) {
+        await withTimeout(active.stop(), 'Stopping the capture', 15_000)
+      }
+      await window.lumen.clearSource()
+
       const output = await withTimeout(
         window.lumen.finishSession(seconds),
         'Saving the MP4',
@@ -261,7 +336,11 @@ await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
         <div className="mt-6">
           <h2 className="text-sm font-medium text-neutral-300">Pick an app</h2>
           {windows.length === 0 ? (
-            <p className="mt-2 text-sm text-neutral-500">No open windows were found.</p>
+            <p className="mt-2 text-sm text-neutral-500">
+              {looking
+                ? 'Looking for windows. macOS reports them a few at a time.'
+                : 'No open windows were found.'}
+            </p>
           ) : (
             <ul className="mt-3 grid grid-cols-3 gap-2 md:grid-cols-4 lg:grid-cols-5">
               {windows.map((source) => (
@@ -275,11 +354,17 @@ await withTimeout(window.lumen.selectSource(source.id), 'Selecting the source')
                     }`}
                   >
                     <span className="flex aspect-video items-center justify-center bg-black">
-                      <img
-                        src={source.thumbnail}
-                        alt=""
-                        className="max-h-full max-w-full object-contain"
-                      />
+                      {source.thumbnail === '' ? (
+                        <span className="text-lg text-neutral-600">
+                          {source.name.slice(0, 1).toUpperCase()}
+                        </span>
+                      ) : (
+                        <img
+                          src={source.thumbnail}
+                          alt=""
+                          className="max-h-full max-w-full object-contain"
+                        />
+                      )}
                     </span>
                     <span className="block truncate px-2 py-1.5 text-left text-xs text-neutral-300">
                       {source.name}
@@ -367,7 +452,13 @@ function RecordingControls({
             region === null ? { source } : { source, region },
             async (chunk) => {
               if (stopped) return
-              await window.lumen.writeChunk(relativePath, await chunk.arrayBuffer())
+              try {
+                await window.lumen.writeChunk(relativePath, await chunk.arrayBuffer())
+              } catch (cause) {
+                // A lost chunk is a corrupt Segment. Surface it now rather than
+                // exporting a file that will not play.
+                onErrorRef.current(cause)
+              }
             },
             SEGMENT_TIMESLICE_MS,
             preview.current ?? undefined,

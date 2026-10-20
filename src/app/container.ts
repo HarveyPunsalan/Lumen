@@ -8,7 +8,7 @@
 import type { Handler } from '../platform/main/ipc.js'
 import { setLibraryRoot, ensureLibrary } from '../modules/library/paths.js'
 import { getPermissions, openScreenRecordingSettings } from '../modules/capture/main/permissions.js'
-import { listSources, findSource } from '../modules/capture/main/sources.js'
+import { createSourceDirectory } from '../modules/capture/main/sources.js'
 import {
   listRecordings,
   playbackUrl,
@@ -42,15 +42,20 @@ export function wireModules(root: string, platform: PlatformHandles): WiredModul
     notifyExportProgress: platform.notifyExportProgress,
   })
 
+  // One directory for the app's lifetime. It merges partial enumerations, so
+  // the Source the user clicked is still resolvable even if the next
+  // enumeration missed it. See sources.ts.
+  const sourceDirectory = createSourceDirectory()
+
   return {
     currentSource: runtime.currentSource,
     handlers: {
       'permissions:get': async () => getPermissions(),
-      'capture:sources': async () => listSources(),
+      'capture:sources': async () => sourceDirectory.list(),
       'capture:open-settings': async () => openScreenRecordingSettings(),
 
-      'capture:select-source': async (_event, sourceId) => {
-        runtime.selectSource(await findSource(sourceId))
+      'capture:select-source': async (_event, sourceId, sourceName) => {
+        runtime.selectSource(sourceDirectory.find(sourceId, sourceName))
       },
       'capture:clear-source': async () => {
         runtime.clearSource()

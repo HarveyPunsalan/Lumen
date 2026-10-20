@@ -7,6 +7,7 @@
  */
 
 import { ipcMain, type IpcMainInvokeEvent } from 'electron'
+import { encodeLumenError, isLumenError } from '../../kernel/index.js'
 import { LUMEN_SCHEME } from './protocol.js'
 
 export type Handler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown
@@ -27,11 +28,18 @@ export function isTrustedSender(event: IpcMainInvokeEvent): boolean {
 
 /** Wrap a handler so it refuses to run for an untrusted sender. */
 export function trusted(handler: Handler): Handler {
-  return (event, ...args) => {
+  return async (event, ...args) => {
     if (!isTrustedSender(event)) {
       throw new Error('Rejected IPC from an untrusted frame.')
     }
-    return handler(event, ...args)
+    try {
+      return await handler(event, ...args)
+    } catch (cause) {
+      // A thrown LumenError is a plain object and gets flattened to
+      // "[object Object]" crossing IPC, so it travels packed instead.
+      if (isLumenError(cause)) throw new Error(encodeLumenError(cause))
+      throw cause
+    }
   }
 }
 

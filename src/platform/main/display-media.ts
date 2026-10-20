@@ -23,8 +23,8 @@ export function handleDisplayMediaRequest(currentSource: () => Source | null): v
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     const source = currentSource()
     if (source === null) {
-      // An empty object leaves getUserMedia pending forever. Passing null is the
-      // documented refusal, so the renderer sees a rejection it can show.
+      // An empty object leaves getUserMedia pending forever. Passing null is
+      // the documented refusal, so the renderer sees a rejection it can show.
       callback(null)
       return
     }

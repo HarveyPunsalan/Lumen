@@ -12,6 +12,10 @@ files:
   - package.json
 
 asar: true
+# A native binary inside app.asar cannot be spawned. Keep the ffmpeg binary
+# outside the archive; pipeline.ts points at the unpacked copy at runtime.
+asarUnpack:
+  - '**/node_modules/ffmpeg-static/**'
 
 mac:
   category: public.app-category.productivity

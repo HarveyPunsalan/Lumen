@@ -25,7 +25,8 @@ const api = {
   // capture
   listSources: () => ipcRenderer.invoke('capture:sources'),
   openScreenRecordingSettings: () => ipcRenderer.invoke('capture:open-settings'),
-  selectSource: (sourceId: string) => ipcRenderer.invoke('capture:select-source', sourceId),
+  selectSource: (sourceId: string, sourceName: string) =>
+    ipcRenderer.invoke('capture:select-source', sourceId, sourceName),
   clearSource: () => ipcRenderer.invoke('capture:clear-source'),
 
   // session

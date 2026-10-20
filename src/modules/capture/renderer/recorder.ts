@@ -11,12 +11,13 @@ import type { Target } from '../types.js'
 import { RegionCropper } from './region-cropper.js'
 
 /** Fired once per timeslice with the blob to append to the current Segment. */
-export type RecorderChunkHandler = (chunk: Blob) => void
+export type RecorderChunkHandler = (chunk: Blob) => Promise<void> | void
 
 export class Recorder {
   private recorder: MediaRecorder | null = null
   private stream: MediaStream | null = null
   private cropper: RegionCropper | null = null
+  private handler: RecorderChunkHandler | null = null
 
   /**
    * Whether dispose() has run. getUserMedia does not resolve immediately, so a
@@ -25,6 +26,13 @@ export class Recorder {
    * the app quits, burning CPU and holding the Display.
    */
   private disposed = false
+
+  /**
+   * The write queue. Every chunk waits for the one before it, because two
+   * appends racing each other can put a cluster ahead of the WebM header and
+   * leave a file ffmpeg cannot open.
+   */
+  private writes: Promise<void> = Promise.resolve()
 
   /**
    * Begin the current Segment. handler receives a blob every `timesliceMs`.
@@ -73,8 +81,20 @@ export class Recorder {
     }
 
     this.recorder = new MediaRecorder(encoded, { mimeType: SEGMENT_MIME_TYPE })
+    this.handler = handler
+    this.writes = Promise.resolve()
     this.recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) handler(event.data)
+      if (event.data.size === 0) return
+      this.writes = this.writes
+        .then(() => {
+          const handler = this.handler
+          if (handler === null) return
+          return handler(event.data)
+        })
+        .catch(() => {
+          // The handler reports its own failure. Keep the queue alive so one
+          // rejected write does not silently block every chunk after it.
+        })
     }
     this.recorder.start(timesliceMs)
   }
@@ -89,9 +109,45 @@ export class Recorder {
     return this.stream
   }
 
-  /** Release the capture stream. Called on Stop, and on every failure path. */
+  /**
+   * Close the Segment and wait until every chunk is on disk.
+   *
+   * Stop must not race Export. MediaRecorder hands over its final chunk
+   * asynchronously, so asking main to save the moment Stop is pressed used to
+   * run the size check before the last chunk landed, and a real recording was
+   * rejected as empty.
+   */
+  async stop(): Promise<void> {
+    const recorder = this.recorder
+    this.recorder = null
+
+    if (recorder !== null && recorder.state !== 'inactive') {
+      await Promise.race([
+        new Promise<void>((resolve) => {
+          recorder.addEventListener('stop', () => resolve(), { once: true })
+          try {
+            recorder.stop()
+          } catch {
+            resolve()
+          }
+        }),
+        new Promise<void>((resolve) => setTimeout(resolve, 5_000)),
+      ])
+    }
+
+    await this.writes
+    this.handler = null
+    this.disposed = true
+    this.cropper?.stop()
+    this.cropper = null
+    for (const track of this.stream?.getTracks() ?? []) track.stop()
+    this.stream = null
+  }
+
+  /** Release the capture stream. Called on every failure path, never at Stop. */
   dispose(): void {
     this.disposed = true
+    this.handler = null
     this.recorder?.stop()
     this.recorder = null
     this.cropper?.stop()

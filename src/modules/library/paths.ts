@@ -81,6 +81,11 @@ export async function readFileInLibrary(relative: string): Promise<Uint8Array> {
   return new Uint8Array(await fs.readFile(resolveInLibrary(relative)))
 }
 
+/** Rename inside the Library. Used to publish an Export only once it is done. */
+export async function renameInLibrary(fromRelative: string, toRelative: string): Promise<void> {
+  await fs.rename(resolveInLibrary(fromRelative), resolveInLibrary(toRelative))
+}
+
 /**
  * Append to a file inside the Library.
  *

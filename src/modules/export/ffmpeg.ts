@@ -26,16 +26,21 @@ export function run(ffmpegPath: string, options: RunOptions): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = spawn(ffmpegPath, [...options.args])
     let stderr = ''
+    let progressText = ''
     let reported = 0
 
     child.stderr.on('data', (chunk: Buffer) => {
       const text = chunk.toString()
       stderr += text
       if (stderr.length > 64_000) stderr = stderr.slice(-64_000)
-
       // ffmpeg reports its own progress. Parse it rather than running a fake
       // timer, so the bar reflects real work. See export.md, Progress.
-      const match = /out_time_us=(\d+)/.exec(text)
+      //
+      // Keep a tail across chunks: a key=value line can be split between two
+      // data events, and matching one chunk at a time then sees neither half.
+      progressText = (progressText + text).slice(-4096)
+      let match: RegExpExecArray | null = null
+      for (const candidate of progressText.matchAll(/out_time_us=(\d+)/g)) match = candidate
       const total = options.durationSeconds
       if (match === null || total === undefined || total <= 0) return
 

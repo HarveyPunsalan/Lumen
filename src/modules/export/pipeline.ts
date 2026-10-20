@@ -28,7 +28,11 @@ function binary(): string {
   if (typeof binaryPath !== 'string') {
     throw new Error('ffmpeg is not available in this build.')
   }
-  return binaryPath
+  // Packaged, the binary is unpacked beside the archive (asarUnpack in
+  // electron-builder.yml) but ffmpeg-static keeps reporting the path inside
+  // it. A binary inside app.asar cannot be spawned. In dev the substring is
+  // absent and this is a no-op.
+  return binaryPath.replace('app.asar', 'app.asar.unpacked')
 }
 
 /**
@@ -59,6 +63,8 @@ export function buildArgs(request: ExportRequest, concatListPath: string): strin
     '-safe', '0',
     '-i', concatListPath,
     ...ENCODE_ARGS,
+    '-progress', 'pipe:2',
+    '-nostats',
     request.outputPath,
   ]
 }
