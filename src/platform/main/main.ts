@@ -10,6 +10,20 @@ import { registerHandlers } from './ipc.js'
 import { handleDisplayMediaRequest } from './display-media.js'
 import { wireModules, bootstrap } from '../../app/container.js'
 
+// macOS 26 and ScreenCaptureKit: Chromium's thumbnail upload for the window
+// list can miss its deadline, which surfaces as an empty picker or a single
+// window. These flags pin enumeration to the older path that does not need the
+// thumbnail before returning. See electron/electron#51125 and #44504.
+// Remove when Electron fixes the ThumbnailCapturer path upstream.
+app.commandLine.appendSwitch(
+  'disable-features',
+  [
+    'ThumbnailCapturerMac:capture_mode/sc_screenshot_manager',
+    'ScreenCaptureKitPickerScreen',
+    'ScreenCaptureKitStreamPickerSonoma',
+  ].join(','),
+)
+
 // Must run before app is ready.
 registerSchemePrivileges()
 

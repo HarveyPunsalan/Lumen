@@ -13,6 +13,7 @@ import {
   ensureSessionFolder,
   libraryRoot,
   relativeInLibrary,
+  renameInLibrary,
   statInLibrary,
 } from '../modules/library/paths.js'
 import { Session } from '../modules/session/session.js'
@@ -100,6 +101,7 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
      * loses at most one chunk. ADR 0002.
      */
     async writeChunk(relativePath, bytes) {
+      console.log('[seg] chunk', relativePath, bytes.byteLength)
       await appendFileInLibrary(relativePath, new Uint8Array(bytes))
     },
 
@@ -114,6 +116,7 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       const session = requireSession()
       const folder = session.folder
       const outputPath = path.join(folder, 'recording.mp4')
+      const partialPath = path.join(folder, 'recording.partial.mp4')
 
       // A Segment is registered the moment its name is claimed, so an
       // abandoned one, such as the extra mount React StrictMode causes in
@@ -122,17 +125,30 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       const written: string[] = []
       for (const segment of segmentPaths) {
         const size = await statInLibrary(relativeInLibrary(segment)).catch(() => 0)
+        console.log('[seg] size', segment, size)
         if (size > 0) written.push(segment)
       }
+      console.log('[seg] finish', written.length, 'of', segmentPaths.length)
 
       if (written.length === 0) {
         throw new Error('Nothing was recorded, so there is nothing to save.')
       }
 
-      await exportSession(
-        { segments: written, workFolder: folder, outputPath, durationSeconds },
-        deps.notifyExportProgress,
-      )
+      try {
+        await exportSession(
+          {
+            segments: written,
+            workFolder: folder,
+            outputPath: partialPath,
+            durationSeconds,
+          },
+          deps.notifyExportProgress,
+        )
+      } catch (cause) {
+        await deleteInLibrary(relativeInLibrary(partialPath)).catch(() => {})
+        throw cause
+      }
+      await renameInLibrary(relativeInLibrary(partialPath), relativeInLibrary(outputPath))
 
       // The Segments are an implementation detail. The MP4 is the Recording.
       for (const segment of segmentPaths) {

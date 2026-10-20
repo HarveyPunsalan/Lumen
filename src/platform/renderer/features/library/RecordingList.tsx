@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useState } from 'react'
+import { decodeLumenError } from '@lumen/kernel/errors'
 
 export interface RecordingEntry {
   readonly name: string
@@ -15,7 +16,13 @@ export interface RecordingEntry {
 }
 
 function message(cause: unknown): string {
-  return cause instanceof Error ? cause.message : String(cause)
+  // Main-side LumenErrors arrive packed inside the flat message text, because
+  // a plain object thrown across IPC is flattened to "[object Object]".
+  if (cause instanceof Error) {
+    const decoded = decodeLumenError(cause.message)
+    return decoded ? decoded.message : cause.message
+  }
+  return String(cause)
 }
 
 function formatSize(bytes: number): string {
