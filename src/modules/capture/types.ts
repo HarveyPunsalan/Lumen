@@ -38,16 +38,17 @@ export interface Source {
  */
 export interface Target {
   readonly source: Source
-  /** Crop rectangle in the Source's own pixel coordinates. Absent means all of it. */
+  /** Crop as fractions of the Target's frame, 0 to 1. Absent means all of it. */
   readonly region?: Region
 }
 
 /**
- * A rectangle inside a Display, defined by dragging.
+ * A rectangle inside a Target, defined by dragging.
  *
- * Coordinates are in the Source's own pixel dimensions, not CSS or logical
- * ones. A Retina display reports twice the pixel size, so a rectangle dragged
- * in logical units has to be scaled before use. See mapRegionToPixels.
+ * Values are fractions of the Target's frame, from 0 to 1, not pixels. A
+ * Display and a Window report different pixel sizes, and a Window can be
+ * resized during a Session, so the crop is resolved against the captured frame
+ * instead. See region-cropper.ts.
  */
 export interface Region {
   readonly x: number

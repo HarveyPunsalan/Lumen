@@ -49,9 +49,9 @@ even when something is drawn on top of it.
 
 **Full Screen**, an entire Display with no crop.
 
-**Region**, a rectangle inside a Display, defined by dragging. Produces a
-Display Recording cropped to that rectangle, with no black padding and nothing
-outside it.
+**Region**, a rectangle inside a Target, defined by dragging. The Target is a
+Display or a Window. Produces a Recording cropped to that rectangle, with no
+black padding and nothing outside it.
 
 **Frame**, the camera image placed in a Recording. Off, or in any of four
 corners, with the room behind it blurred or sharp.
@@ -192,9 +192,10 @@ Recording continues while another application is in front.
 native resolution.
 
 **Region.** The Recording contains only the dragged rectangle, edge to edge,
-with no black padding. The rectangle holds on a Retina Display and on a
-non-Retina one. A rectangle of any odd width and height still exports, because
-H.264 requires even dimensions and the encoder rounds rather than refusing.
+with no black padding. The rectangle holds on a Retina Display, on a
+non-Retina one, and inside a Window that is resized mid-Session. A rectangle of
+any odd width and height still exports, because H.264 requires even dimensions
+and the encoder rounds rather than refusing.
 
 **Session.** Pressing Stop writes one playable MP4 and the Library lists it.
 The Recording plays inside the app without scrolling. Delete removes it.
@@ -226,23 +227,25 @@ Accounts, teams, and seats.
 
 ## Status
 
-Written, not tested. Nothing below has been verified against a passing build.
+Last updated 2026-10-20.
 
-Working and confirmed by manual test: Full Screen and Region capture, a Session
-producing a playable MP4, the Library listing a Recording, and playback inside
-the app.
+Working and confirmed by manual test: Isolate (Selected Window), Full Screen,
+Region capture, a Session producing a playable MP4, the Library listing a
+Recording, and playback inside the app. Isolate, the headline capability, was
+verified on macOS 26 after the window picker was rebuilt around repeated
+enumeration and the save path was made to wait for the final chunk.
 
-Written but never tested: Isolate, which is the headline capability and the one
-the whole product thesis rests on. Delete. Whether a live Region keeps content
-out of the Recording when the user switches applications, which is the reason
-the Region is cropped during capture rather than at Export.
+Not yet verified: Delete. Whether a live Region keeps content out of the
+Recording when the user switches applications, which is the reason the Region
+is cropped during capture rather than at Export. Whether a crash or force quit
+loses at most one second. Seeking in the in-app player.
 
-Not started: Frame and its `FrameProcessor` implementation, Trim, encryption,
-and Lock. `crypto.ts` throws on every entry point, so the Library is not yet
-encrypted at rest.
+Not started: switching Target mid-Session, Frame and its `FrameProcessor`
+implementation, Trim, microphone narration, encryption, and Lock. `crypto.ts`
+throws on every entry point, so the Library is not yet encrypted at rest.
 
-Two bugs found in the last week were invisible to a passing build and are
-recorded here because both were type-level lies rather than logic errors. A
+Two early bugs were invisible to a passing build and are recorded here because
+both were type-level lies rather than logic errors. A
 `desktopCapturer` source id was passed where Electron expected a source
 object, behind a cast that silenced the compiler, and `getUserMedia` simply
 never settled. And an absolute path was passed to a function that expected a

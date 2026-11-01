@@ -52,6 +52,7 @@ export function wireModules(root: string, platform: PlatformHandles): WiredModul
     handlers: {
       'permissions:get': async () => getPermissions(),
       'capture:sources': async () => sourceDirectory.list(),
+      'capture:refresh-screens': async () => sourceDirectory.refreshScreens(),
       'capture:open-settings': async () => openScreenRecordingSettings(),
 
       'capture:select-source': async (_event, sourceId, sourceName) => {

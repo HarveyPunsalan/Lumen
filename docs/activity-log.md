@@ -90,3 +90,56 @@ holds for the Frame. See `region-cropper.ts`.
 Not yet verified: whether the live Region actually keeps content out of the
 Recording when the user alt-tabs. That needs a manual test with two windows
 side by side, and it is the whole point of the feature.
+
+## 2026-10-14
+
+Window recording still never started: `getUserMedia` never settled. The cause
+was a type-level lie. The renderer passed a `desktopCapturer` source id where
+Electron's display-media handler expected a Source object, and a cast hid the
+mismatch from the compiler. Main now resolves the id to a Source and hands the
+handler the whole object.
+
+## 2026-10-15
+
+The REC clock kept climbing after Stop because Export re-rendered the screen
+and restarted the capture effect. Stop now freezes the clock through a ref,
+and the player fits the window instead of making the user scroll. The duplicate
+captures that re-render used to leave running are gone.
+
+## 2026-10-16
+
+The Region outline is stitched from the drag corners and the selection has
+resize grips, so the rectangle can be adjusted before recording instead of
+being dragged again from scratch.
+
+## 2026-10-18
+
+Moved the Session runtime to `app/session-runtime.ts` and shrank
+`display-media.ts` to the Electron handler, so the composition root owns the
+wiring. React StrictMode's extra mount was leaving a capture running after its
+component was gone; disposal now stops the stream and drops chunks after
+unmount. Region drag no longer drifts away from the pointer.
+
+## 2026-10-19 and 2026-10-20
+
+Window picking was the week. `getSources` returns whatever finished inside
+Electron's three second budget, so every ask is a different subset. The Apple
+system picker was removed after it recorded Lumen itself, and a zero-size
+thumbnail returns only Lumen, so window photos stay at 1280x720. The picker
+now asks three more times, 3.5 seconds apart, and merges sightings by title
+into a directory, so the grid fills and the clicked window stays resolvable.
+
+The save failure was not capture. Segments on disk held megabytes while
+`finish()` rejected them as empty: the size check ran before MediaRecorder
+delivered its final chunk, and chunk appends could race out of order and leave
+a WebM with no header. Writes are serialized, Stop awaits the final chunk, and
+Export writes `recording.partial.mp4` before renaming it. ffmpeg progress is
+parsed from `-progress pipe:2 -nostats` instead of a bar stuck at 0%.
+
+Electron 44.9.1 was audited and carried no capture fixes, so the dependency
+stayed at 44.7.0.
+
+Verified with a 12 second window recording: 4.5 MB Segment, playable MP4.
+Unresolved: Stop feels heavy, playback is slightly choppy at 30 fps, Region
+still records its own live preview, and three `[seg]` diagnostic logs were
+committed by mistake.

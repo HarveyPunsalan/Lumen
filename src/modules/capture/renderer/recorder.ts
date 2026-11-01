@@ -75,7 +75,17 @@ export class Recorder {
 
     let encoded = stream
     if (target.region !== undefined) {
-      this.cropper = RegionCropper.start(stream, target.region)
+      this.cropper = await RegionCropper.start(stream, target.region)
+
+      // dispose() can run while the cropper waits for its first frame. Nothing
+      // owns the stream then, so release it instead of letting it record.
+      if (this.disposed) {
+        this.cropper.stop()
+        this.cropper = null
+        for (const track of stream.getTracks()) track.stop()
+        return
+      }
+
       encoded = this.cropper.output
       if (preview !== undefined) this.cropper.attachPreview(preview)
     }

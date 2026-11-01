@@ -45,9 +45,9 @@ applications are not blurred or dimmed, they are absent from the file.
 _Avoid_: blur, cut, hide, crop
 
 **Region**:
-A rectangle inside a Display, defined by dragging. Capturing a Region
-produces a full Display Recording cropped to that rectangle. Everything
-outside the rectangle is absent from the file.
+A rectangle inside a Target, defined by dragging. The Target is a Display or a
+Window. Capturing a Region produces a Recording cropped to that rectangle.
+Everything outside the rectangle is absent from the file.
 _Avoid_: crop, selection, area
 
 **Full Screen**:

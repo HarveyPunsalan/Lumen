@@ -1,5 +1,5 @@
 /**
- * Drag a rectangle over a preview of the Display to choose a Region.
+ * Drag a rectangle over a preview of the Target to choose a Region.
  *
  * The box only appears while the mouse is held, not when it merely moves over
  * the preview. Once it exists it can be resized from eight handles, or four
@@ -7,18 +7,29 @@
  * adjusted rather than redrawn.
  * Any size is allowed. There is no snapping.
  *
- * Coordinates come back in the Source's own pixels, because a Retina display
- * reports twice the resolution and the crop would otherwise land in the wrong
- * place. See system-design.md, Known constraints.
+ * The drag uses the preview's CSS pixels. The confirmed Region is the same box
+ * as fractions of the Target's frame, so it survives Retina scaling and a
+ * Window that is resized mid-Session.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Region, Source } from '@lumen/modules/capture/types'
-import { mapRegionToPixels } from '@lumen/modules/capture/renderer/region-cropper'
 
 interface Point {
   x: number
   y: number
+}
+
+/**
+ * The rectangle while it is being dragged, in the preview's CSS pixels.
+ *
+ * The confirmed Region is the same box as fractions of the Target's frame.
+ */
+interface PixelRect {
+  x: number
+  y: number
+  width: number
+  height: number
 }
 
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'move'
@@ -53,7 +64,7 @@ const SMALL_REGION = 48
  * The hit test and the drawing both use this, so a grip is never drawn where it
  * cannot be grabbed, and never hidden where it can.
  */
-function activeHandles(region: Region): ReadonlyArray<(typeof HANDLES)[number]> {
+function activeHandles(region: PixelRect): ReadonlyArray<(typeof HANDLES)[number]> {
   if (Math.min(region.width, region.height) < SMALL_REGION) {
     return HANDLES.filter((entry) => entry.x !== 0.5 && entry.y !== 0.5)
   }
@@ -62,7 +73,7 @@ function activeHandles(region: Region): ReadonlyArray<(typeof HANDLES)[number]> 
 
 /** How close a press has to be to grab a grip on this box. Shrinks on a very
  *  small box so the middle never disappears. */
-function grabRadius(region: Region): number {
+function grabRadius(region: PixelRect): number {
   return Math.min(GRAB_RADIUS, Math.max(3, Math.min(region.width, region.height) / 3))
 }
 
@@ -126,7 +137,7 @@ function edgeDashOffsets(length: number): number[] {
 }
 
 /** Every dash around the Region perimeter, in preview coordinates. */
-function perimeterDashes(region: Region): GripRect[] {
+function perimeterDashes(region: PixelRect): GripRect[] {
   const { x, y, width, height } = region
   const rects: GripRect[] = []
 
@@ -203,7 +214,7 @@ function stitch(span: number): number[] {
  */
 function gripRects(
   entry: (typeof HANDLES)[number],
-  region: Region,
+  region: PixelRect,
   reach: number,
 ): GripRect[] {
   const cx = region.x + region.width * entry.x
@@ -249,7 +260,7 @@ function gripRects(
   return [...horizontal(hFrom, arm, 'h'), ...vertical(vFrom, arm, 'v')]
 }
 
-function normalise(a: Point, b: Point): Region {
+function normalise(a: Point, b: Point): PixelRect {
   return {
     x: Math.min(a.x, b.x),
     y: Math.min(a.y, b.y),
@@ -258,7 +269,7 @@ function normalise(a: Point, b: Point): Region {
   }
 }
 
-function resize(region: Region, handle: Handle, to: Point, bounds: DOMRect): Region {
+function resize(region: PixelRect, handle: Handle, to: Point, bounds: DOMRect): PixelRect {
   // Only the edges this handle owns move. The others stay put, and every value
   // is clamped so a drag cannot invert or push the box off the preview.
   let { x, y, width, height } = region
@@ -283,17 +294,17 @@ function resize(region: Region, handle: Handle, to: Point, bounds: DOMRect): Reg
 }
 
 export function RegionSelector({
-  screen,
+  target,
   onCancel,
   onConfirm,
 }: {
-  screen: Source
+  target: Source
   onCancel: () => void
   onConfirm: (region: Region) => void
 }) {
   const container = useRef<HTMLDivElement | null>(null)
   const surface = useRef<HTMLDivElement | null>(null)
-  const [region, setRegion] = useState<Region | null>(null)
+  const [region, setRegion] = useState<PixelRect | null>(null)
 
   /**
    * The mouse button being held, kept separately from which handle it grabbed.
@@ -313,7 +324,7 @@ export function RegionSelector({
    * press on top of what was already added, because the Region it read had
    * already moved. A 100px drag travelled 1850px, which is the magnet feeling.
    */
-  const moveStart = useRef<{ pointer: Point; region: Region } | null>(null)
+  const moveStart = useRef<{ pointer: Point; region: PixelRect } | null>(null)
 
   const pointOf = useCallback((clientX: number, clientY: number): Point => {
     const box = surface.current?.getBoundingClientRect()
@@ -436,16 +447,14 @@ export function RegionSelector({
     if (region === null || box === undefined || box === null) return
     if (region.width < 8 || region.height < 8) return
 
-    // The Source reports real pixels, the drag is in CSS pixels.
-    onConfirm(
-      mapRegionToPixels(
-        region,
-        screen.pixelWidth ?? Math.round(box.width),
-        screen.pixelHeight ?? Math.round(box.height),
-        box.width,
-        box.height,
-      ),
-    )
+    // Fractions, not pixels: the captured frame is what the cropper measures,
+    // and it knows its own size. See region-cropper.ts.
+    onConfirm({
+      x: region.x / box.width,
+      y: region.y / box.height,
+      width: region.width / box.width,
+      height: region.height / box.height,
+    })
   }
 
   useEffect(() => {
@@ -475,7 +484,7 @@ export function RegionSelector({
         onPointerCancel={onPointerUp}
         className="relative mt-6 w-full max-w-3xl cursor-crosshair overflow-hidden rounded-lg border border-neutral-800 bg-black select-none"
       >
-        <img src={screen.thumbnail} alt="" className="block w-full" draggable={false} />
+        <img src={target.thumbnail} alt="" className="block w-full" draggable={false} />
         {region !== null && (
           <>
             {perimeterDashes(region).map((dash) => (

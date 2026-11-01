@@ -36,6 +36,7 @@ const SOURCE_TTL_MS = 30_000
 export function createSourceDirectory() {
   const entries = new Map<string, { source: Source; seenAt: number }>()
   let screensLoaded = false
+  let screensInFlight: Promise<Source[]> | null = null
   let windowsInFlight: Promise<Source[]> | null = null
 
   const keyOf = (source: Source): string =>
@@ -54,6 +55,16 @@ export function createSourceDirectory() {
     }
   }
 
+  /** One screen enumeration at a time, shared by every caller asking at once. */
+  function listScreens(): Promise<Source[]> {
+    if (screensInFlight === null) {
+      screensInFlight = enumerateScreens().finally(() => {
+        screensInFlight = null
+      })
+    }
+    return screensInFlight
+  }
+
   /** One window enumeration at a time, shared by every caller asking at once. */
   function listWindows(): Promise<Source[]> {
     if (windowsInFlight === null) {
@@ -65,10 +76,24 @@ export function createSourceDirectory() {
   }
 
   return {
+    /**
+     * A fresh photo of every Display, for the Region picker.
+     *
+     * list() caches screens because the window picker asks repeatedly, but a
+     * cached photo is from app launch. The Region box is drawn on that photo,
+     * so a stale one records a different area than the user selected.
+     */
+    async refreshScreens(): Promise<Source[]> {
+      const fresh = await listScreens()
+      remember(fresh, Date.now())
+      screensLoaded = true
+      return fresh
+    },
+
     /** Merge fresh results into the directory, and return everything visible. */
     async list(): Promise<Source[]> {
       if (!screensLoaded) {
-        remember(await enumerateScreens(), Date.now())
+        remember(await listScreens(), Date.now())
         screensLoaded = true
       }
 
@@ -76,7 +101,7 @@ export function createSourceDirectory() {
 
       // A window that closed disappears by expiry, not by a missing sighting:
       // one bad enumeration should not erase a window the user can still see.
-      // Screens are not dropped; they are enumerated once and never re-asked.
+      // Screens are not dropped by expiry; refreshScreens() replaces their photo.
       const now = Date.now()
       for (const [key, entry] of entries) {
         if (entry.source.kind === 'window' && now - entry.seenAt > SOURCE_TTL_MS) {
