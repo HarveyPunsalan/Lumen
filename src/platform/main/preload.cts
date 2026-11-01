@@ -24,6 +24,7 @@ const api = {
 
   // capture
   listSources: () => ipcRenderer.invoke('capture:sources'),
+  refreshScreens: () => ipcRenderer.invoke('capture:refresh-screens'),
   openScreenRecordingSettings: () => ipcRenderer.invoke('capture:open-settings'),
   selectSource: (sourceId: string, sourceName: string) =>
     ipcRenderer.invoke('capture:select-source', sourceId, sourceName),

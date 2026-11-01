@@ -51,7 +51,7 @@ Electron returns two kinds of Source. Everything else follows.
 |---|---|
 | Isolate a Window | Pick a Source of kind `window`. The video is that window. |
 | Full Screen | Pick a Source of kind `screen`. The video is the display. |
-| Region | Full Screen, then crop to a dragged rectangle. |
+| Region | Any Source, then crop to a dragged rectangle. |
 
 A Region is not blurred or dimmed. The pixels outside the rectangle are not in
 the file. Do not implement it as a filter.
@@ -96,6 +96,7 @@ is a properly signed bundle declaring `NSScreenCaptureUsageDescription` in its
 `Info.plist`. This is the first thing to check when a Recording comes out
 blank.
 
-Retina displays report twice the pixel dimensions. A Region dragged in logical
-coordinates has to be mapped to the video's real pixel size before cropping,
-or the crop lands in the wrong place.
+Retina displays report twice the pixel dimensions. A Region is stored as
+fractions of the Target's frame, not in logical pixels, and resolved against
+the captured video once it reports its own size. That keeps the crop correct on
+Retina and when a Window is resized mid-Session.

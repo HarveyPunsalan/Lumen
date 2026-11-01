@@ -2,8 +2,8 @@
  * Pick what to record, then record it.
  *
  * Three modes, matching CONTEXT.md. Whole Screen follows whatever is on the
- * display. Selected Window stays locked to one app. Region stays locked to a
- * rectangle you drag.
+ * display. Selected Window stays locked to one app, and records all of it or a
+ * rectangle inside it. Region stays locked to a rectangle inside a Display.
  *
  * How a screen looks is design.md. How the React works is react.md.
  */
@@ -17,7 +17,14 @@ import {
 } from '@lumen/modules/capture/renderer/recorder'
 import { RegionSelector } from './RegionSelector'
 
-type Status = 'idle' | 'choosing-region' | 'starting' | 'recording' | 'saved' | 'error'
+type Status =
+  | 'idle'
+  | 'choosing-region'
+  | 'cropping-window'
+  | 'starting'
+  | 'recording'
+  | 'saved'
+  | 'error'
 
 function message(cause: unknown): string {
   // Main-side LumenErrors arrive packed inside the flat message text, because
@@ -67,7 +74,7 @@ const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; hint: string }> =
   {
     mode: 'selected-window',
     label: 'Selected Window',
-    hint: 'Pick one app. It stays locked there even if you switch away.',
+    hint: 'Pick one app. Record all of it or just part of it, and it stays locked if you switch away.',
   },
   {
     mode: 'region',
@@ -87,6 +94,16 @@ const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; hint: string }> =
 const WINDOW_ASK_GAP_MS = 3_500
 const WINDOW_ASKS = 3
 
+/**
+ * How much capture to keep after Stop.
+ *
+ * Stop freezes the clock immediately, but the encoded frame lags the screen by
+ * a moment. Without this, the last click is visible in the file but its result
+ * is not: the user clicks a file, it opens, Stop lands, and the video ends on
+ * the click. One second is enough for the next repaint to be drawn and encoded.
+ */
+const STOP_TAIL_MS = 1_000
+
 export function SourcePicker() {
   const [sources, setSources] = useState<Source[]>([])
   const [mode, setMode] = useState<CaptureMode>('whole-screen')
@@ -104,6 +121,9 @@ export function SourcePicker() {
   // frozen REC badge, so the clock stops climbing during Export.
   const [stopping, setStopping] = useState(false)
   const stoppingRef = useRef(false)
+  // Bumped on every mode click, so a slow screen refresh cannot reopen the
+  // Region picker after the user chose another mode.
+  const regionRequest = useRef(0)
 
   // Stable on purpose. An inline arrow here is a new function on every render,
   // and the capture effect in RecordingControls depends on it, so every render
@@ -166,30 +186,42 @@ export function SourcePicker() {
     }
   }, [mode, status])
 
-  // No Display means Region cannot be drawn, so fall back to the mode list
-  // rather than setting state during render.
+  // Derived, not stored: the picker only needs the two kinds separately.
   const screens = sources.filter((source) => source.kind === 'screen')
   const windows = sources.filter((source) => source.kind === 'window')
 
-  if (status === 'choosing-region' && screens[0] === undefined) {
-    return (
-      <div className="p-8">
-        <h1 className="text-lg font-medium">Record</h1>
-        <p className="mt-4 rounded-md border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">
-          No Display was found.
-        </p>
-      </div>
-    )
-  }
-
-  function chooseMode(next: CaptureMode) {
+  async function chooseMode(next: CaptureMode) {
     setError(null)
     if (next === 'region') {
-      setStatus('choosing-region')
+      const request = regionRequest.current + 1
+      regionRequest.current = request
+      try {
+        // The photo is taken now, not at launch. The box is drawn on it, so a
+        // stale photo records a different area than the user selected.
+        const fresh = await window.lumen.refreshScreens()
+        if (request !== regionRequest.current) return
+        if (fresh[0] === undefined) {
+          setError('No Display was found.')
+          return
+        }
+        setSources((current) => [
+          ...current.filter((source) => source.kind !== 'screen'),
+          ...fresh,
+        ])
+        setStatus('choosing-region')
+      } catch (cause) {
+        if (request !== regionRequest.current) return
+        setError(message(cause))
+        setStatus('error')
+      }
       return
     }
+
+    regionRequest.current += 1
     setMode(next)
     setPicked(next === 'whole-screen' ? (screens[0] ?? null) : null)
+    // A Region belongs to one Target, so it never follows the user to another.
+    setRegion(null)
     setStatus('idle')
   }
 
@@ -242,9 +274,15 @@ export function SourcePicker() {
       // before main counts the bytes. Without this, a real recording could be
       // rejected as empty because the last write landed after the check.
       const active = recorder.current
-      recorder.current = null
       if (active !== null) {
+        // Keep drawing and recording for one more second. The click that
+        // stopped the Session has already happened, but the frame that shows
+        // its result may not have reached the encoder yet.
+        await new Promise((resolve) => setTimeout(resolve, STOP_TAIL_MS))
+        recorder.current = null
         await withTimeout(active.stop(), 'Stopping the capture', 15_000)
+      } else {
+        recorder.current = null
       }
       await window.lumen.clearSource()
 
@@ -264,17 +302,33 @@ export function SourcePicker() {
   }, [])
 
   if (status === 'choosing-region') {
-    // Guarded above, so a Display exists here.
+    // chooseMode only enters this status when a fresh Display exists.
     const screen = screens[0]
     if (screen === undefined) return null
     return (
       <RegionSelector
-        screen={screen}
+        target={screen}
         onCancel={() => setStatus('idle')}
         onConfirm={(pickedRegion) => {
           setRegion(pickedRegion)
           setMode('region')
           setPicked(screen)
+          setStatus('idle')
+        }}
+      />
+    )
+  }
+
+  if (status === 'cropping-window') {
+    // Guarded by the button, which only shows once a window is picked.
+    if (picked === null) return null
+    return (
+      <RegionSelector
+        target={picked}
+        onCancel={() => setStatus('idle')}
+        onConfirm={(pickedRegion) => {
+          // Mode stays selected-window: the Target is the Window, not a Display.
+          setRegion(pickedRegion)
           setStatus('idle')
         }}
       />
@@ -319,7 +373,9 @@ export function SourcePicker() {
         {MODES.map((entry) => (
           <button
             key={entry.mode}
-            onClick={() => chooseMode(entry.mode)}
+            onClick={() => {
+              void chooseMode(entry.mode)
+            }}
             className={`flex-1 rounded-lg border p-4 text-left ${
               mode === entry.mode
                 ? 'border-neutral-100 bg-neutral-900'
@@ -346,7 +402,11 @@ export function SourcePicker() {
               {windows.map((source) => (
                 <li key={source.id}>
                   <button
-                    onClick={() => setPicked(source)}
+                    onClick={() => {
+                      setPicked(source)
+                      // The old box was drawn on another Window's photo.
+                      setRegion(null)
+                    }}
                     className={`w-full overflow-hidden rounded-md border ${
                       picked?.id === source.id
                         ? 'border-neutral-100'
@@ -377,13 +437,25 @@ export function SourcePicker() {
         </div>
       )}
 
-      {region !== null && mode === 'region' && (
+      {region !== null && picked !== null && (
         <p className="mt-4 text-xs text-neutral-500">
-          Region {region.width} by {region.height} at {region.x}, {region.y}
+          Region {Math.round(region.width * 100)}% × {Math.round(region.height * 100)}% of{' '}
+          {picked.name}
         </p>
       )}
 
       <div className="mt-6 flex items-center gap-4">
+        {mode === 'selected-window' && picked !== null && (
+          <button
+            onClick={() => {
+              setError(null)
+              setStatus('cropping-window')
+            }}
+            className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 hover:border-neutral-500"
+          >
+            {region === null ? 'Record only part of it' : 'Adjust the region'}
+          </button>
+        )}
         <button
           onClick={() => {
             if (picked !== null) void start(picked)
@@ -543,7 +615,7 @@ function RecordingControls({
           autoPlay
           muted
           playsInline
-          className="aspect-video w-full object-contain"
+          className="mx-auto block max-h-[70vh] max-w-full"
         />
       </div>
 

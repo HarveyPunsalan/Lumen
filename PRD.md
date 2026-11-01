@@ -49,9 +49,9 @@ even when something is drawn on top of it.
 
 **Full Screen**, an entire Display with no crop.
 
-**Region**, a rectangle inside a Display, defined by dragging. Produces a
-Display Recording cropped to that rectangle, with no black padding and nothing
-outside it.
+**Region**, a rectangle inside a Target, defined by dragging. The Target is a
+Display or a Window. Produces a Recording cropped to that rectangle, with no
+black padding and nothing outside it.
 
 **Frame**, the camera image placed in a Recording. Off, or in any of four
 corners, with the room behind it blurred or sharp.
@@ -192,9 +192,10 @@ Recording continues while another application is in front.
 native resolution.
 
 **Region.** The Recording contains only the dragged rectangle, edge to edge,
-with no black padding. The rectangle holds on a Retina Display and on a
-non-Retina one. A rectangle of any odd width and height still exports, because
-H.264 requires even dimensions and the encoder rounds rather than refusing.
+with no black padding. The rectangle holds on a Retina Display, on a
+non-Retina one, and inside a Window that is resized mid-Session. A rectangle of
+any odd width and height still exports, because H.264 requires even dimensions
+and the encoder rounds rather than refusing.
 
 **Session.** Pressing Stop writes one playable MP4 and the Library lists it.
 The Recording plays inside the app without scrolling. Delete removes it.
