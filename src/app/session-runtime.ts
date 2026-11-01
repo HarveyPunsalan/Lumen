@@ -101,7 +101,6 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
      * loses at most one chunk. ADR 0002.
      */
     async writeChunk(relativePath, bytes) {
-      console.log('[seg] chunk', relativePath, bytes.byteLength)
       await appendFileInLibrary(relativePath, new Uint8Array(bytes))
     },
 
@@ -125,10 +124,8 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       const written: string[] = []
       for (const segment of segmentPaths) {
         const size = await statInLibrary(relativeInLibrary(segment)).catch(() => 0)
-        console.log('[seg] size', segment, size)
         if (size > 0) written.push(segment)
       }
-      console.log('[seg] finish', written.length, 'of', segmentPaths.length)
 
       if (written.length === 0) {
         throw new Error('Nothing was recorded, so there is nothing to save.')
