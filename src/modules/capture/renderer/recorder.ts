@@ -71,6 +71,16 @@ export class Recorder {
       return
     }
 
+    // Ask the capture engine to leave the pointer out. Chromium may not support
+    // this yet, so a rejection is ignored rather than failing the Segment. If
+    // it is honoured, the cursor is never drawn into the file.
+    const videoTrack = stream.getVideoTracks()[0]
+    if (videoTrack !== undefined) {
+      await videoTrack
+        .applyConstraints({ cursor: 'never' } as unknown as MediaTrackConstraints)
+        .catch(() => {})
+    }
+
     this.stream = stream
 
     let encoded = stream

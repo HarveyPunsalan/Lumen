@@ -14,12 +14,23 @@ type View = 'record' | 'library'
 export function App() {
   const [permissions, setPermissions] = useState<PermissionReport | null>(null)
   const [view, setView] = useState<View>('record')
+  // Bumped when a Save finishes, so the Library reloads even while it is open.
+  const [libraryVersion, setLibraryVersion] = useState(0)
+  // Owned here, not in SourcePicker. Switching screens must not hide a Save.
+  const [exporting, setExporting] = useState(false)
+  const [exportProgress, setExportProgress] = useState(0)
 
   const readPermissions = useCallback(() => {
     void window.lumen.getPermissions().then(setPermissions)
   }, [])
 
+  const markSaved = useCallback(() => {
+    setLibraryVersion((version) => version + 1)
+  }, [])
+
   useEffect(readPermissions, [readPermissions])
+  // The preload returns its unsubscribe, so the listener goes with the screen.
+  useEffect(() => window.lumen.onExportProgress(setExportProgress), [])
 
   if (permissions === null) {
     return <p className="p-8 text-neutral-500">Checking permissions...</p>
@@ -69,12 +80,34 @@ export function App() {
         >
           Library
         </button>
+        {exporting && (
+          <span className="ml-auto flex items-center gap-2 text-xs text-neutral-400">
+            <span className="h-1.5 w-24 overflow-hidden rounded-full bg-neutral-800">
+              <span
+                className="block h-full bg-neutral-200"
+                style={{ width: `${Math.round(exportProgress * 100)}%` }}
+              />
+            </span>
+            Saving {Math.round(exportProgress * 100)}%
+          </span>
+        )}
       </nav>
-      {view === 'record' ? (
-        <SourcePicker />
-      ) : (
-        <RecordingList onBack={() => setView('record')} />
-      )}
+      {/* Both screens stay mounted. A Save belongs to the app, not to the
+          visible screen, so switching to the Library must not drop it. */}
+      <div className={view === 'record' ? '' : 'hidden'}>
+        <SourcePicker
+          progress={exportProgress}
+          onExportingChange={setExporting}
+          onSaved={markSaved}
+        />
+      </div>
+      <div className={view === 'library' ? '' : 'hidden'}>
+        <RecordingList
+          active={view === 'library'}
+          refreshKey={libraryVersion}
+          onBack={() => setView('record')}
+        />
+      </div>
     </>
   )
 }

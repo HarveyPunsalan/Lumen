@@ -147,11 +147,13 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       }
       await renameInLibrary(relativeInLibrary(partialPath), relativeInLibrary(outputPath))
 
-      // The Segments are an implementation detail. The MP4 is the Recording.
-      for (const segment of segmentPaths) {
+      // Delete only the Segments this Export used. A new Session may have
+      // started while ffmpeg was running, so clearing the shared list would
+      // discard the new Session's Segment names.
+      for (const segment of written) {
         await deleteInLibrary(relativeInLibrary(segment)).catch(() => {})
       }
-      segmentPaths.length = 0
+      if (currentSession === session) segmentPaths.length = 0
 
       return outputPath
     },

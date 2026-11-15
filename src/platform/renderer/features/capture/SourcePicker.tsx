@@ -3,7 +3,7 @@
  *
  * Three modes, matching CONTEXT.md. Whole Screen follows whatever is on the
  * display. Selected Window stays locked to one app, and records all of it or a
- * rectangle inside it. Region stays locked to a rectangle inside a Display.
+ * Region inside it. Region mode draws a rectangle on a Display.
  *
  * How a screen looks is design.md. How the React works is react.md.
  */
@@ -79,7 +79,7 @@ const MODES: ReadonlyArray<{ mode: CaptureMode; label: string; hint: string }> =
   {
     mode: 'region',
     label: 'Region',
-    hint: 'Drag a box. Only that part is recorded, the rest is black.',
+    hint: 'Drag a box. Only that part is in the file.',
   },
 ]
 
@@ -104,7 +104,15 @@ const WINDOW_ASKS = 3
  */
 const STOP_TAIL_MS = 1_000
 
-export function SourcePicker() {
+export function SourcePicker({
+  progress,
+  onExportingChange,
+  onSaved,
+}: {
+  progress: number
+  onExportingChange: (exporting: boolean) => void
+  onSaved: () => void
+}) {
   const [sources, setSources] = useState<Source[]>([])
   const [mode, setMode] = useState<CaptureMode>('whole-screen')
   const [status, setStatus] = useState<Status>('idle')
@@ -115,7 +123,6 @@ export function SourcePicker() {
   const [looking, setLooking] = useState(false)
   const [region, setRegion] = useState<Region | null>(null)
   const [exporting, setExporting] = useState(false)
-  const [progress, setProgress] = useState(0)
   const recorder = useRef<Recorder | null>(null)
   // True from the moment Stop is pressed until the next Start. Drives the
   // frozen REC badge, so the clock stops climbing during Export.
@@ -134,9 +141,6 @@ export function SourcePicker() {
     setError(message(cause))
     setStatus('error')
   }, [])
-
-  // Returns its unsubscribe, so a remount does not leave a listener behind.
-  useEffect(() => window.lumen.onExportProgress(setProgress), [])
 
   // Screens are reliable and arrive in one ask. Windows do not; the window
   // picker asks again while it is open. See the effect below.
@@ -269,6 +273,7 @@ export function SourcePicker() {
     // hunting for a Webm most players refuse to open.
     try {
       setExporting(true)
+      onExportingChange(true)
 
       // Close the MediaRecorder and wait for its final chunk to reach disk
       // before main counts the bytes. Without this, a real recording could be
@@ -293,13 +298,15 @@ export function SourcePicker() {
       )
       setFolder(output)
       setStatus('saved')
+      onSaved()
     } catch (cause) {
       setError(message(cause))
       setStatus('error')
     } finally {
       setExporting(false)
+      onExportingChange(false)
     }
-  }, [])
+  }, [onExportingChange, onSaved])
 
   if (status === 'choosing-region') {
     // chooseMode only enters this status when a fresh Display exists.
