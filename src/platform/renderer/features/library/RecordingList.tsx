@@ -35,7 +35,15 @@ function formatWhen(millis: number): string {
   return new Date(millis).toLocaleString()
 }
 
-export function RecordingList({ onBack }: { onBack: () => void }) {
+export function RecordingList({
+  active,
+  refreshKey,
+  onBack,
+}: {
+  active: boolean
+  refreshKey: number
+  onBack: () => void
+}) {
   const [entries, setEntries] = useState<RecordingEntry[] | null>(null)
   const [playing, setPlaying] = useState<string | null>(null)
   const [playbackUrls, setPlaybackUrls] = useState<Record<string, string>>({})
@@ -51,7 +59,17 @@ export function RecordingList({ onBack }: { onBack: () => void }) {
       })
   }, [])
 
-  useEffect(load, [load])
+  // Load when the Library is shown, and again when a Save finishes while it is
+  // already open. It stays mounted behind the Record screen, so a one-time
+  // mount effect would go stale.
+  useEffect(() => {
+    if (active) load()
+  }, [active, load, refreshKey])
+
+  // Leaving the Library closes the player, so it does not hold the file open.
+  useEffect(() => {
+    if (!active) setPlaying(null)
+  }, [active])
 
   async function remove(folder: string) {
     try {
