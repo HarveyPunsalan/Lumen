@@ -2,7 +2,7 @@
   "name": "lumen",
   "version": "0.1.0",
   "description": "A screen recorder that captures only what you choose to show",
-  "license": "MIT",
+  "license": "SEE LICENSE IN LICENSE",
   "type": "module",
   "main": "dist-electron/platform/main/main.js",
   "scripts": {
