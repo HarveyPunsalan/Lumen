@@ -24,6 +24,7 @@ import type { Source } from '../modules/capture/types.js'
 
 export interface SessionRuntimeDeps {
   readonly notifyExportProgress: (progress: ExportProgress) => void
+  readonly setContentProtection: (on: boolean) => void
 }
 
 export interface SessionRuntime {
@@ -82,6 +83,11 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
         frame: DEFAULT_FRAME_SETTINGS,
       })
       segmentPaths.length = 0
+      // Lumen's window shows a live picture of what it captures, so a Display
+      // Recording would contain Lumen containing itself, a mirror with no end.
+      // macOS can keep this window out of every capture instead, which also
+      // leaves the area behind it in the file. Verified by manual test.
+      deps.setContentProtection(true)
       return { folder: currentSession.folder }
     },
 
@@ -117,45 +123,51 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
       const outputPath = path.join(folder, 'recording.mp4')
       const partialPath = path.join(folder, 'recording.partial.mp4')
 
-      // A Segment is registered the moment its name is claimed, so an
-      // abandoned one, such as the extra mount React StrictMode causes in
-      // development, is still listed. ffmpeg cannot read a file that has no
-      // frames, so only the Segments that actually hold data are exported.
-      const written: string[] = []
-      for (const segment of segmentPaths) {
-        const size = await statInLibrary(relativeInLibrary(segment)).catch(() => 0)
-        if (size > 0) written.push(segment)
-      }
-
-      if (written.length === 0) {
-        throw new Error('Nothing was recorded, so there is nothing to save.')
-      }
-
+      // Protection is a property of a Session, not of the whole app, so it has
+      // to come off however this ends, including a failed Export.
       try {
-        await exportSession(
-          {
-            segments: written,
-            workFolder: folder,
-            outputPath: partialPath,
-            durationSeconds,
-          },
-          deps.notifyExportProgress,
-        )
-      } catch (cause) {
-        await deleteInLibrary(relativeInLibrary(partialPath)).catch(() => {})
-        throw cause
-      }
-      await renameInLibrary(relativeInLibrary(partialPath), relativeInLibrary(outputPath))
+        // A Segment is registered the moment its name is claimed, so an
+        // abandoned one, such as the extra mount React StrictMode causes in
+        // development, is still listed. ffmpeg cannot read a file that has no
+        // frames, so only the Segments that actually hold data are exported.
+        const written: string[] = []
+        for (const segment of segmentPaths) {
+          const size = await statInLibrary(relativeInLibrary(segment)).catch(() => 0)
+          if (size > 0) written.push(segment)
+        }
 
-      // Delete only the Segments this Export used. A new Session may have
-      // started while ffmpeg was running, so clearing the shared list would
-      // discard the new Session's Segment names.
-      for (const segment of written) {
-        await deleteInLibrary(relativeInLibrary(segment)).catch(() => {})
-      }
-      if (currentSession === session) segmentPaths.length = 0
+        if (written.length === 0) {
+          throw new Error('Nothing was recorded, so there is nothing to save.')
+        }
 
-      return outputPath
+        try {
+          await exportSession(
+            {
+              segments: written,
+              workFolder: folder,
+              outputPath: partialPath,
+              durationSeconds,
+            },
+            deps.notifyExportProgress,
+          )
+        } catch (cause) {
+          await deleteInLibrary(relativeInLibrary(partialPath)).catch(() => {})
+          throw cause
+        }
+        await renameInLibrary(relativeInLibrary(partialPath), relativeInLibrary(outputPath))
+
+        // Delete only the Segments this Export used. A new Session may have
+        // started while ffmpeg was running, so clearing the shared list would
+        // discard the new Session's Segment names.
+        for (const segment of written) {
+          await deleteInLibrary(relativeInLibrary(segment)).catch(() => {})
+        }
+        if (currentSession === session) segmentPaths.length = 0
+
+        return outputPath
+      } finally {
+        deps.setContentProtection(false)
+      }
     },
   }
 }
