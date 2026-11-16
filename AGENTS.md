@@ -28,6 +28,9 @@ never ship. `npm run audit` checks production only, and the answer is zero.
 No tests until after v1. Do not add a test framework or any test file without
 asking.
 
+Bugs are recorded in `docs/activity-log.md`: what broke, why, and how it was
+fixed. Do not open a GitHub issue for one unless I ask.
+
 ## Rules
 
 Read the file that matches what you are doing. Do not read all of them.

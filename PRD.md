@@ -227,22 +227,36 @@ Accounts, teams, and seats.
 
 ## Status
 
-Last updated 2026-10-20.
+Last verified 2026-11-16. Last changed 2026-11-16.
 
 Working and confirmed by manual test: Isolate (Selected Window), Full Screen,
-Region capture, a Session producing a playable MP4, the Library listing a
-Recording, and playback inside the app. Isolate, the headline capability, was
-verified on macOS 26 after the window picker was rebuilt around repeated
-enumeration and the save path was made to wait for the final chunk.
+Region capture on a Display, a Session producing a playable MP4, the Library
+listing a Recording, playback inside the app, and Delete removing both the entry
+and the folder. Isolate, the headline capability, was verified on macOS 26 after
+the window picker was rebuilt around repeated enumeration and the save path was
+made to wait for the final chunk.
 
-Not yet verified: Delete. Whether a live Region keeps content out of the
-Recording when the user switches applications, which is the reason the Region
-is cropped during capture rather than at Export. Whether a crash or force quit
-loses at most one second. Seeking in the in-app player.
+Verified on 2026-11-15: a Window Region Recording keeps out both the content of
+an app covering the Target and the pointer, and the in-app player seeks to the
+middle and near the end of a Recording longer than two minutes. A Save also
+survives a screen switch: the progress stays in the top bar, and the Recording
+appears in the Library when it finishes.
+
+Added on 2026-11-01, verified on 2026-11-15: Region inside a Window, and the
+fraction-based Region resolution that keeps the rectangle correct when a
+Window is resized.
+
+Verified on 2026-11-16: a Display Region Recording does not contain Lumen's own
+window. The app marks itself not shareable for the length of a Session, so the
+Recording holds only the content behind it and the preview stays on screen.
+
+Not yet verified: whether a crash or force quit loses at most one second.
 
 Not started: switching Target mid-Session, Frame and its `FrameProcessor`
-implementation, Trim, microphone narration, encryption, and Lock. `crypto.ts`
-throws on every entry point, so the Library is not yet encrypted at rest.
+implementation, Trim, microphone narration, encryption, Lock, and crash
+recovery. `crypto.ts` throws on every entry point, so the Library is not yet
+encrypted at rest. There is no `meta.json` writer and no startup scan for a
+Session that did not Export.
 
 Two early bugs were invisible to a passing build and are recorded here because
 both were type-level lies rather than logic errors. A

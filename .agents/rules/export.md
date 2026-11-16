@@ -7,11 +7,14 @@ Read this before touching ffmpeg or the Export pipeline.
 Takes a finished Session and produces one MP4.
 
 ```
-concat Segments  ->  crop  ->  overlay Frame  ->  trim  ->  encode
+concat Segments  ->  overlay Frame  ->  trim  ->  encode
 ```
 
-Each step is optional. A Full Screen Isolate has no crop and no overlay. A
-Recording with no Frame has neither.
+Each step is optional. A Recording with no Frame has no overlay, and one with
+no Trim has no trim step.
+
+A Region is not an Export step. It is applied during capture, so the Segments
+already contain only the Region. See ADR 0004.
 
 ## ffmpeg invocation
 
@@ -49,15 +52,16 @@ Session. It only works because every Segment was written with identical
 encoder settings. **Do not vary the mimeType between Segments.** Pin it once
 and use it everywhere, or concat produces a file that will not play.
 
-## Crop
+## Region
 
-Only for a Region. Applied to the Display video before anything else.
+A Region is applied during capture, not here. The capture renderer sizes its
+canvas from the captured frame and encodes only that stream, so the Segments
+already contain nothing outside the rectangle.
 
-A Region is given in logical coordinates from the drag. Retina displays report
-twice the pixel dimensions. Map the rectangle to real pixels using the video's
-actual width and height, not the display's reported size. Getting this wrong
-puts the crop in the wrong place, and it is the single most likely bug in the
-pipeline.
+The Region is stored as fractions of the Target's frame, not logical pixels.
+That keeps it correct on a Retina Display and when a Window is resized during
+a Session. Do not add a crop step to Export; it would crop an already cropped
+Segment and could reintroduce the content the user excluded.
 
 ## Overlay
 
