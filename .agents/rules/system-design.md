@@ -17,9 +17,10 @@ Record pressed
     cam.webm           the camera, separate file
     meta.json          Segments, timestamps, Frame settings
 
+  A Region is applied live: the recorder encodes only the rectangle.
+
 Stop pressed
   concat Segments      -c copy, no re-encode
-  crop                 if the Target is a Region
   overlay              if the Frame is enabled
   trim                 if the user set in or out points
   encode               H.264, AAC, faststart
@@ -51,7 +52,7 @@ Electron returns two kinds of Source. Everything else follows.
 |---|---|
 | Isolate a Window | Pick a Source of kind `window`. The video is that window. |
 | Full Screen | Pick a Source of kind `screen`. The video is the display. |
-| Region | Any Source, then crop to a dragged rectangle. |
+| Region | Any Source, cropped live to a dragged rectangle. |
 
 A Region is not blurred or dimmed. The pixels outside the rectangle are not in
 the file. Do not implement it as a filter.

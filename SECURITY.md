@@ -71,14 +71,16 @@ hosts videos cannot make the same claim.
 
 ## Week 1 checklist
 
-Verified before Week 2 begins.
+Last checked 2026-11-12 by reading the code. The unchecked items need a
+running app or are not built yet.
 
-- [ ] `contextIsolation` on, `nodeIntegration` off, `sandbox` on
-- [ ] Content Security Policy set and enforced
-- [ ] Custom protocol in place, no `file://`
-- [ ] Every IPC handler validates its sender
-- [ ] All child processes spawned with argument arrays
-- [ ] Writes confined to `~/Movies/Lumen/`, verified with a traversal attempt
+- [x] `contextIsolation` on, `nodeIntegration` off, `sandbox` on
+- [x] Content Security Policy set and enforced
+- [x] Custom protocol in place, no `file://`
+- [x] Every IPC handler validates its sender
+- [x] All child processes spawned with argument arrays
+- [x] Writes confined to `~/Movies/Lumen/` in code
+- [ ] Path traversal attempt exercised against the running app
 - [ ] Argon2id and AES-256-GCM round trip verified
 - [ ] Network tab empty during a recording
 - [ ] Recording works while the Library is Locked

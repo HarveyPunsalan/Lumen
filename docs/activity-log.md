@@ -143,3 +143,128 @@ Verified with a 12 second window recording: 4.5 MB Segment, playable MP4.
 Unresolved: Stop feels heavy, playback is slightly choppy at 30 fps, Region
 still records its own live preview, and three `[seg]` diagnostic logs were
 committed by mistake.
+
+## 2026-11-01
+
+Region recording was extended from a Display to a Window, and the crop was
+made resolution-independent. The rectangle is stored as fractions of the
+Target's frame and resolved once the captured frame reports its size, so a
+Retina Display and a Window resized mid-Session both crop correctly.
+
+The Region picker refreshes the Display photo when it opens. The old photo was
+from app launch, so the box could be drawn on a stale image and record a
+different area. A Region inside a Window now uses the Selected Window flow
+rather than a separate mode.
+
+The cropper owns an offscreen video element and draws on a timer, so a covered
+window does not pause the crop. Stop keeps capturing for one second after the
+click so the result of the click reaches the encoder. A dispose during the
+first-frame wait releases the stream instead of leaving it recording.
+
+Unresolved: Stop feels heavy, playback is choppy at 30 fps, and the Region
+preview may still appear in its own Recording. This entry was written on
+2026-11-12; the session itself did not update the log.
+
+## 2026-11-12
+
+Reconciled the documents before starting the next feature. ADR 0004 now names
+the Region and the Frame's background blur as the two effects applied during
+capture; Trim and the Frame's corner remain Export choices. The architecture
+rules, export guide, and system design diagram match the code again.
+
+The readme no longer claims encryption or release builds that do not exist. It
+separates what works today from what is planned. The security checklist marks
+the controls that are in place and leaves the unbuilt ones open.
+
+The verification pass is open: Delete, seeking, Region isolation when switching
+apps, and a force quit. Results are in the 2026-11-15 entry.
+
+## 2026-11-15
+
+The verification pass ran. Delete passed: the entry disappeared, the folder was
+gone, and a relaunch did not bring it back. Window Region isolation passed for
+content: a VSCode window covering the Target did not appear in the file. The
+Display Region preview check and the force-quit check are still open.
+
+Two defects came out of the pass, and both are fixed.
+
+**Seeking.** Dragging the playhead to 0:30 sent it back to where it was. The
+player was asking for the bytes from 0:30 onward, which is how every player
+seeks, but the `lumen://` recordings route ignored the Range header and sent
+the file from the beginning. The route now answers a single byte range with
+`206 Partial Content`, `Content-Range`, `Accept-Ranges: bytes`, and a streamed
+slice from disk. Verified with a Recording longer than two minutes: the player
+jumps to the middle and near the end and keeps playing.
+
+Interview note: a video route that ignores Range is the difference between a
+video that plays and a video that can be scrubbed. The player was already
+asking correctly; the server was the broken half.
+
+**Cursor.** A Window Region Recording contained the pointer even while it was
+moving over another app that covered the Target. The captured pixels were still
+only the Target's; macOS's capture layer draws the pointer into the stream by
+default. Electron exposes no cursor option on the display media handler. The
+recorder now asks the capture track for `cursor: 'never'` with
+`applyConstraints`, wrapped so a rejection cannot fail the Segment. Verified:
+the pointer is absent when it moves over a covering app inside the Region.
+
+Interview note: the pointer is an OS overlay, not part of the window's content,
+so it has to be controlled at the capture layer rather than cropped out later.
+The cheap fix worked, but it depends on the capture engine honouring the
+constraint; if a future Electron drops it, the pointer returns.
+
+**Save lost on navigation.** While a 20 second Recording was Saving at 65%, the
+user switched to the Library. The Record screen was unmounted, taking the
+progress bar and the completion message with it. The Library only lists a
+folder with a finished `recording.mp4`, so the interrupted
+`recording.partial.mp4` was invisible and looked deleted. The raw
+`part-002.webm` and the partial MP4 were both on disk; the partial decoded as
+17.39 seconds. This was a bug in who owns the Save, not data loss.
+
+The fix keeps both screens mounted, with the inactive one hidden. The Save now
+lives in the app shell: a `Saving n%` bar sits in the top bar and survives a
+screen switch. The Library reloads when it is shown and when a Save finishes,
+and closes its player when hidden. `finish()` now deletes only the Segments its
+own Export used, so a new Session cannot have its files removed by an older
+Export still running. The percentage itself was always ffmpeg's real processed
+time; the denominator is the REC clock, so the number can be approximate.
+Verified against the reported case: a 20 second Recording was left at 65% while
+the user switched to the Library, the bar kept running in the top bar, and the
+Recording appeared in the Library when the Save finished, with no restart.
+
+Interview note: a long-running task must not be owned by the screen that
+started it. Navigation is not a cancel button, but if the task's state lives in
+the component, the user cannot tell the difference.
+
+Not fixed here: a Save that is interrupted by quitting the app still leaves
+`recording.partial.mp4` and no Library entry. Recovery on the next launch,
+including a `meta.json`, is part of the trust layer.
+
+## 2026-11-16
+
+**The recorder captured itself.** The last unchecked Region claim was whether a
+Display Region Recording contains Lumen's own live preview. It does. The Region
+was drawn over Lumen's window, the window shows a live picture of what it is
+capturing, and the file came back as a mirror: Lumen inside Lumen, no end. The
+check failed on the first run. The raw Segment was also heavy and laggy at that
+resolution, but that part is normal for a 3072x1334 capture encoded at CRF 23.
+
+The fix is not a hidden preview panel. macOS can mark a window as not shareable,
+which keeps it out of every capture at the OS level, Lumen's own included.
+`setContentProtection(true)` turns that on when a Session begins, and `finish()`
+turns it off in a `finally` so a failed Export cannot leave the app invisible for
+good. The preview stays live on screen and the Recording holds whatever was
+behind the window. Verified on macOS 27.2.1: the window is absent from the file
+and the area it covered shows the content underneath.
+
+Interview note: the first fix you reach for is usually the one that hides the
+symptom. Blanking the panel would have stopped the mirror while keeping Lumen in
+the file and taking the preview away from the user. Asking the OS to exclude the
+window keeps the promise that the file holds only the Target, and costs one
+call. Check the platform capability before writing a UI workaround.
+
+Side effect worth knowing: protection applies to every capture app, so while a
+Session runs Lumen is also missing from screenshots and screen shares. It stops
+when the Save does.
+
+Still open: the force-quit diagnostic. That one is information, not a gate.

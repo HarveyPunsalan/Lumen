@@ -37,6 +37,12 @@ app.whenReady().then(async () => {
         win.webContents.send('export:progress', progress),
       )
     },
+    // macOS marks the window as not shareable, so no capture sees it, ours
+    // included. The renderer keeps its live preview and the Recording holds
+    // whatever was behind the window. Session-scoped; see session-runtime.ts.
+    setContentProtection: (on) => {
+      BrowserWindow.getAllWindows().forEach((win) => win.setContentProtection(on))
+    },
   })
 
   registerHandlers(handlers)

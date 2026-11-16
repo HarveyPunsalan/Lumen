@@ -21,6 +21,8 @@ import type { Source } from '../modules/capture/types.js'
 /** Capabilities only `platform/` can provide. `main.ts` passes these in. */
 export interface PlatformHandles {
   readonly notifyExportProgress: (progress: ExportProgress) => void
+  /** Keep Lumen's own window out of every screen capture while it records. */
+  readonly setContentProtection: (on: boolean) => void
 }
 
 export interface WiredModules {
@@ -40,6 +42,7 @@ export function wireModules(root: string, platform: PlatformHandles): WiredModul
 
   const runtime = createSessionRuntime({
     notifyExportProgress: platform.notifyExportProgress,
+    setContentProtection: platform.setContentProtection,
   })
 
   // One directory for the app's lifetime. It merges partial enumerations, so

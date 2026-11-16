@@ -1,7 +1,17 @@
 # Lumen
 
-A screen recorder that records only what you choose to show. macOS and
-Windows. Free, no account, nothing uploaded.
+A screen recorder that records only what you choose to show. macOS today;
+Windows planned. Free, no account, nothing uploaded.
+
+## Status
+
+Early build. The core recorder works on macOS: Isolate a Window, Full Screen,
+or a Region inside a Display. A Session Exports to one MP4 in the Library, and
+the Library lists and plays it.
+
+Not ready yet: encryption and Lock, the Frame, Trim, microphone narration,
+switching Target mid-Session, Region inside a Window (implemented, not yet
+verified), Windows testing, and release builds. Build from source for now.
 
 ## Why it exists
 
@@ -13,46 +23,54 @@ Lumen does that, and it does not cost anything.
 
 ## What it does
 
-- Record a single window, so nothing else appears in the file at all
-- Record the full screen, or a region you drag
-- Switch between windows while recording, without stopping
+Works today:
+
+- Record a single Window, so nothing else appears in the file at all
+- Record a full Display, or a Region you drag
+- Export an MP4 that a school or team will accept
+- List and play Recordings in the Library
+- Delete a Recording (implemented, not yet verified)
+
+Planned:
+
+- Region inside a Window (implemented, not yet verified)
+- Switch between Windows while recording, without stopping
 - Put your camera in a corner with the room behind you blurred, or sharp, or
   turned off
 - Trim the dead air off the start and end
-- Export MP4 that any school or team will accept
+- Microphone narration
+- Encryption and Lock
+- Windows support and release builds
 
-## Install
+## Build from source
 
-Download the build for your system from the Releases page, then:
+There is no release build yet. From the repository:
 
-**macOS.** Open the `.dmg` and drag Lumen to Applications. macOS will warn you
-the first time that the app is from an unidentified developer. Click "More
-Info", then "Open". It only asks once.
+```bash
+npm install
+npm run dev
+```
 
-**Windows.** Download the `.exe` and run it. Windows will show "Windows
-protected your PC". Click "More info", then "Run anyway".
+`npm run package` builds an installer when that path is ready.
 
-On first launch you will be asked for two permissions:
-
-- **Screen Recording**, so Lumen can capture what you point it at
-- **Microphone**, so your narration is included
-
-Both are requested by macOS itself. If you deny them, Lumen will tell you
-rather than recording a blank desktop.
+On first launch, macOS asks for Screen Recording permission, so Lumen can
+capture what you point it at. If you deny it, Lumen says so rather than
+recording a blank desktop. Microphone permission is not requested yet.
 
 ## Where your recordings go
 
 `~/Movies/Lumen/`. That is the only folder Lumen writes to. Nothing is
 uploaded, and there is no account.
 
-Recordings are encrypted on disk. You unlock the library with a password when
-you open the app, and you can still record while it is locked. Playback and
-export ask you to unlock first.
+Recordings are not encrypted yet. Until Lock and encryption land, the files
+are readable by anything running as you. See [SECURITY.md](./SECURITY.md) for
+the plan.
 
 ## What it does not do
 
-- No system audio. Microphone only, for now.
-- No timeline editor. Trim sets a start and an end, nothing more.
+- No system audio, and no microphone yet.
+- No timeline editor. Trim, when it lands, sets a start and an end, nothing
+  more.
 - No sharing links or cloud sync.
 - No accounts.
 
@@ -77,3 +95,5 @@ npm run dev
 npm run build
 npm run package
 ```
+
+No release has been published yet.
