@@ -80,7 +80,10 @@ What the product is and must be lives in [PRD.md](./PRD.md). Architecture and
 decisions live in [CONTEXT.md](./CONTEXT.md) and [docs/adr/](./docs/adr/).
 Security controls are in [SECURITY.md](./SECURITY.md).
 
-Built with Electron, React, TypeScript, and ffmpeg. Licensed MIT.
+Built with Electron, React, TypeScript, and ffmpeg.
+
+Lumen is free to use, including for paid work. Don't sell it. The full terms
+are in [LICENSE](./LICENSE).
 
 ### Running locally
 
