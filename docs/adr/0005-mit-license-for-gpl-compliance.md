@@ -1,4 +1,9 @@
-# 0005 - MIT license, so that x264 is usable
+# 0005 - MIT, so that x264 is usable
+
+Amended 2026-11-17. The licence is now MIT with the Commons Clause on top:
+free to use, including for paid work, and not for resale. The reasoning below
+is unchanged, since publishing the source is what matters either way. The MIT
+text and the clause now live together in `LICENSE`.
 
 Lumen is released under the MIT license. Its source is public.
 

@@ -268,3 +268,32 @@ Session runs Lumen is also missing from screenshots and screen shares. It stops
 when the Save does.
 
 Still open: the force-quit diagnostic. That one is information, not a gate.
+
+## 2026-11-17
+
+**No voice.** Every Recording was silent, and there was no microphone path at
+all. The capture was asked for with `audio: false`, the recorder's mime type
+named only the video codec, and Export's AAC encoder had nothing to encode.
+Three separate holes, any one of which would have kept the file silent.
+
+Narration is a switch above Start, off until it is turned on, and remembered
+between launches, because nothing should be recorded unless it was chosen. The
+microphone is asked for while the Session opens rather than on the first frame,
+so a slow permission prompt cannot land on top of the picture. Its track is
+joined onto whatever is being encoded, which matters in Region mode, where the
+picture comes from a canvas that has no audio of its own. It is released on
+Stop and on every failure path, so the system indicator stops. The mime type
+gains Opus for a whole Session or none of it, because Segments only join when
+they were encoded identically.
+
+Verified on 2026-11-17: Full Screen, Selected Window and Region all carry the
+voice, and with the switch off the Recording stays silent.
+
+Interview note: this looked like one missing feature and was three separate
+bugs. The capture asked for no audio, the recorder's codec string had no audio
+codec, and the export had no audio to work with. Fixing only one of them would
+have produced a file that played perfectly and stayed quiet.
+
+Still open: the Narration control is a checkbox and should be a switch before
+v1. The default input is used, with no device picker. System audio stays out of
+scope for v1.
