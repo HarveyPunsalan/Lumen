@@ -7,7 +7,11 @@
 
 import type { Handler } from '../platform/main/ipc.js'
 import { setLibraryRoot, ensureLibrary } from '../modules/library/paths.js'
-import { getPermissions, openScreenRecordingSettings } from '../modules/capture/main/permissions.js'
+import {
+  getPermissions,
+  openMicrophoneSettings,
+  openScreenRecordingSettings,
+} from '../modules/capture/main/permissions.js'
 import { createSourceDirectory } from '../modules/capture/main/sources.js'
 import {
   listRecordings,
@@ -57,6 +61,7 @@ export function wireModules(root: string, platform: PlatformHandles): WiredModul
       'capture:sources': async () => sourceDirectory.list(),
       'capture:refresh-screens': async () => sourceDirectory.refreshScreens(),
       'capture:open-settings': async () => openScreenRecordingSettings(),
+      'capture:open-mic-settings': async () => openMicrophoneSettings(),
 
       'capture:select-source': async (_event, sourceId, sourceName) => {
         runtime.selectSource(sourceDirectory.find(sourceId, sourceName))

@@ -29,6 +29,13 @@ export function App() {
   }, [])
 
   useEffect(readPermissions, [readPermissions])
+  // Microphone access is granted in System Settings while the app is open, and
+  // focus is the only signal that the user has come back from it.
+  useEffect(() => {
+    const onFocus = () => readPermissions()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [readPermissions])
   // The preload returns its unsubscribe, so the listener goes with the screen.
   useEffect(() => window.lumen.onExportProgress(setExportProgress), [])
 
@@ -97,6 +104,7 @@ export function App() {
       <div className={view === 'record' ? '' : 'hidden'}>
         <SourcePicker
           progress={exportProgress}
+          microphone={permissions.microphone}
           onExportingChange={setExporting}
           onSaved={markSaved}
         />

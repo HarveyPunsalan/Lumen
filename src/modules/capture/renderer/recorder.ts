@@ -18,6 +18,8 @@ export class Recorder {
   private stream: MediaStream | null = null
   private cropper: RegionCropper | null = null
   private handler: RecorderChunkHandler | null = null
+  /** The narrator's microphone. Not part of any capture stream of ours. */
+  private micTrack: MediaStreamTrack | null = null
 
   /**
    * Whether dispose() has run. getUserMedia does not resolve immediately, so a
@@ -49,8 +51,9 @@ export class Recorder {
     target: Target,
     handler: RecorderChunkHandler,
     timesliceMs: number,
-    preview?: HTMLVideoElement,
+    options: { preview?: HTMLVideoElement | undefined; narration?: boolean } = {},
   ): Promise<void> {
+    const { preview, narration = false } = options
     this.dispose()
     this.disposed = false
 
@@ -83,13 +86,30 @@ export class Recorder {
 
     this.stream = stream
 
-    let encoded = stream
+    // The microphone is asked for while the Session opens, so a slow or
+    // denied permission prompt does not land on top of the first frames. A
+    // failure leaves the Segment silent rather than dropping it.
+    if (narration) {
+      try {
+        const mic = await navigator.mediaDevices.getUserMedia({ audio: true })
+        if (this.disposed) {
+          for (const track of mic.getTracks()) track.stop()
+          return
+        }
+        this.micTrack = mic.getAudioTracks()[0] ?? null
+      } catch {
+        this.micTrack = null
+      }
+    }
+
+    let encoded: MediaStream
     if (target.region !== undefined) {
       this.cropper = await RegionCropper.start(stream, target.region)
 
       // dispose() can run while the cropper waits for its first frame. Nothing
       // owns the stream then, so release it instead of letting it record.
       if (this.disposed) {
+        this.stopMic()
         this.cropper.stop()
         this.cropper = null
         for (const track of stream.getTracks()) track.stop()
@@ -98,9 +118,20 @@ export class Recorder {
 
       encoded = this.cropper.output
       if (preview !== undefined) this.cropper.attachPreview(preview)
+    } else {
+      encoded = stream
     }
 
-    this.recorder = new MediaRecorder(encoded, { mimeType: SEGMENT_MIME_TYPE })
+    // A Region is cropped into a canvas, which carries video only, and the
+    // display stream is asked for without system audio. The microphone is the
+    // only audio there is, so it is joined onto whatever is being encoded.
+    if (this.micTrack !== null) {
+      encoded = new MediaStream([...encoded.getVideoTracks(), this.micTrack])
+    }
+
+    this.recorder = new MediaRecorder(encoded, {
+      mimeType: this.micTrack !== null ? SEGMENT_MIME_TYPE_WITH_AUDIO : SEGMENT_MIME_TYPE,
+    })
     this.handler = handler
     this.writes = Promise.resolve()
     this.recorder.ondataavailable = (event) => {
@@ -162,6 +193,7 @@ export class Recorder {
     this.cropper = null
     for (const track of this.stream?.getTracks() ?? []) track.stop()
     this.stream = null
+    this.stopMic()
   }
 
   /** Release the capture stream. Called on every failure path, never at Stop. */
@@ -174,6 +206,13 @@ export class Recorder {
     this.cropper = null
     for (const track of this.stream?.getTracks() ?? []) track.stop()
     this.stream = null
+    this.stopMic()
+  }
+
+  /** Let go of the microphone, so the system indicator stops showing. */
+  private stopMic(): void {
+    this.micTrack?.stop()
+    this.micTrack = null
   }
 }
 
@@ -185,6 +224,15 @@ export class Recorder {
  * per-Session choice.
  */
 export const SEGMENT_MIME_TYPE = 'video/webm;codecs=vp9'
+
+/**
+ * The same container, with the Opus track narration needs.
+ *
+ * A Session uses this or SEGMENT_MIME_TYPE, never both. Segments only join
+ * with -c copy when they were encoded identically, so narration cannot be
+ * switched on halfway through a Session.
+ */
+export const SEGMENT_MIME_TYPE_WITH_AUDIO = 'video/webm;codecs=vp9,opus'
 
 /** How often MediaRecorder flushes. See ADR 0002. */
 export const SEGMENT_TIMESLICE_MS = 1000

@@ -93,7 +93,8 @@ Library.
 No shell. FFmpeg runs through `spawn` with an argument array, never `exec` and
 never a string. The argument array is the control, not the filename.
 
-MIT licensed. Not on merit. `ffmpeg-static` ships binaries built with GPL
+MIT with the Commons Clause. Free to use, including for paid work, and not for
+resale. Not on merit either. `ffmpeg-static` ships binaries built with GPL
 components, so linking libx264 under anything else would place Lumen under the
 GPL and require publishing its source.
 [ADR 0005](./docs/adr/0005-mit-license-for-gpl-compliance.md).
@@ -227,7 +228,7 @@ Accounts, teams, and seats.
 
 ## Status
 
-Last verified 2026-11-16. Last changed 2026-11-16.
+Last verified 2026-11-17. Last changed 2026-11-17.
 
 Working and confirmed by manual test: Isolate (Selected Window), Full Screen,
 Region capture on a Display, a Session producing a playable MP4, the Library
@@ -250,10 +251,15 @@ Verified on 2026-11-16: a Display Region Recording does not contain Lumen's own
 window. The app marks itself not shareable for the length of a Session, so the
 Recording holds only the content behind it and the preview stays on screen.
 
+Verified on 2026-11-17: microphone narration. A Narration switch records the
+user's voice in Full Screen, Selected Window and Region, and a Recording with
+it off stays silent. The switch is still a checkbox and there is no device
+picker, so the default input is used.
+
 Not yet verified: whether a crash or force quit loses at most one second.
 
 Not started: switching Target mid-Session, Frame and its `FrameProcessor`
-implementation, Trim, microphone narration, encryption, Lock, and crash
+implementation, Trim, encryption, Lock, and crash
 recovery. `crypto.ts` throws on every entry point, so the Library is not yet
 encrypted at rest. There is no `meta.json` writer and no startup scan for a
 Session that did not Export.
