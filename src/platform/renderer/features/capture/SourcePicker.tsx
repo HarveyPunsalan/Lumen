@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { decodeLumenError } from '@lumen/kernel/errors'
-import type { CaptureMode, Region, Source } from '@lumen/modules/capture/types'
+import type { CaptureMode, PermissionState, Region, Source } from '@lumen/modules/capture/types'
 import {
   Recorder,
   SEGMENT_TIMESLICE_MS,
@@ -104,12 +104,17 @@ const WINDOW_ASKS = 3
  */
 const STOP_TAIL_MS = 1_000
 
+/** Where the narration choice is remembered between launches. */
+const NARRATION_KEY = 'lumen.narration'
+
 export function SourcePicker({
   progress,
+  microphone,
   onExportingChange,
   onSaved,
 }: {
   progress: number
+  microphone: PermissionState
   onExportingChange: (exporting: boolean) => void
   onSaved: () => void
 }) {
@@ -123,6 +128,16 @@ export function SourcePicker({
   const [looking, setLooking] = useState(false)
   const [region, setRegion] = useState<Region | null>(null)
   const [exporting, setExporting] = useState(false)
+  /**
+   * Whether the next Session records the user's voice. Off until asked for,
+   * then remembered, because nothing should be recorded unless it was chosen.
+   */
+  const [narration, setNarration] = useState(() => localStorage.getItem(NARRATION_KEY) === 'on')
+
+  // Remember the choice, so the user sets it once rather than every Session.
+  useEffect(() => {
+    localStorage.setItem(NARRATION_KEY, narration ? 'on' : 'off')
+  }, [narration])
   const recorder = useRef<Recorder | null>(null)
   // True from the moment Stop is pressed until the next Start. Drives the
   // frozen REC badge, so the clock stops climbing during Export.
@@ -348,6 +363,7 @@ export function SourcePicker({
       <RecordingControls
         source={picked}
         region={target ?? null}
+        narration={narration}
         recorderRef={recorder}
         folder={folder}
         exporting={exporting}
@@ -451,7 +467,33 @@ export function SourcePicker({
         </p>
       )}
 
-      <div className="mt-6 flex items-center gap-4">
+      <div className="mt-6 flex flex-wrap items-center gap-4 border-t border-neutral-800 pt-4">
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={narration}
+            onChange={(event) => setNarration(event.currentTarget.checked)}
+            className="h-4 w-4 accent-red-600"
+          />
+          <span className="text-sm text-neutral-200">Narration</span>
+        </label>
+        {narration && microphone !== 'granted' && (
+          <span className="text-xs text-neutral-500">
+            Microphone access is off.{' '}
+            <button
+              type="button"
+              onClick={() => {
+                void window.lumen.openMicrophoneSettings()
+              }}
+              className="underline hover:text-neutral-300"
+            >
+              Open Settings
+            </button>
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4 flex items-center gap-4">
         {mode === 'selected-window' && picked !== null && (
           <button
             onClick={() => {
@@ -484,6 +526,7 @@ export function SourcePicker({
 function RecordingControls({
   source,
   region,
+  narration,
   recorderRef,
   folder,
   exporting,
@@ -494,6 +537,7 @@ function RecordingControls({
 }: {
   source: Source
   region: Region | null
+  narration: boolean
   recorderRef: React.RefObject<Recorder | null>
   folder: string | null
   exporting: boolean
@@ -540,7 +584,7 @@ function RecordingControls({
               }
             },
             SEGMENT_TIMESLICE_MS,
-            preview.current ?? undefined,
+            { preview: preview.current ?? undefined, narration },
           ),
           'Starting the capture',
         )

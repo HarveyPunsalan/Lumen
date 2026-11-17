@@ -21,3 +21,12 @@ export async function openScreenRecordingSettings(): Promise<boolean> {
   )
   return true
 }
+
+/** macOS only. The pane where Microphone permission is granted. */
+export async function openMicrophoneSettings(): Promise<boolean> {
+  if (process.platform !== 'darwin') return false
+  await shell.openExternal(
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+  )
+  return true
+}

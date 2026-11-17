@@ -26,6 +26,7 @@ const api = {
   listSources: () => ipcRenderer.invoke('capture:sources'),
   refreshScreens: () => ipcRenderer.invoke('capture:refresh-screens'),
   openScreenRecordingSettings: () => ipcRenderer.invoke('capture:open-settings'),
+  openMicrophoneSettings: () => ipcRenderer.invoke('capture:open-mic-settings'),
   selectSource: (sourceId: string, sourceName: string) =>
     ipcRenderer.invoke('capture:select-source', sourceId, sourceName),
   clearSource: () => ipcRenderer.invoke('capture:clear-source'),
