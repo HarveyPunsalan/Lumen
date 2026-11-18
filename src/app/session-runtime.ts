@@ -18,9 +18,10 @@ import {
 } from '../modules/library/paths.js'
 import { Session } from '../modules/session/session.js'
 import { exportSession } from '../modules/export/pipeline.js'
-import { DEFAULT_FRAME_SETTINGS } from '../modules/frame/types.js'
+import { DEFAULT_FRAME_SETTINGS, FRAME_CORNERS } from '../modules/frame/types.js'
 import type { ExportProgress } from '../modules/export/types.js'
 import type { Source } from '../modules/capture/types.js'
+import type { FrameCorner, FrameSettings } from '../modules/frame/types.js'
 
 export interface SessionRuntimeDeps {
   readonly notifyExportProgress: (progress: ExportProgress) => void
@@ -31,10 +32,30 @@ export interface SessionRuntime {
   selectSource(source: Source): void
   clearSource(): void
   currentSource(): Source | null
-  begin(): Promise<{ folder: string }>
+  /** `frame` is unknown because it arrives over IPC. It is validated here. */
+  begin(frame: unknown): Promise<{ folder: string }>
   nextSegmentPath(): Promise<{ relativePath: string; folder: string }>
   writeChunk(relativePath: string, bytes: ArrayBuffer): Promise<void>
   finish(durationSeconds: number): Promise<string>
+}
+
+/**
+ * Read the Frame settings the renderer sends.
+ *
+ * The bridge is sender-validated, but a corner that never arrives must not
+ * reach the compositor's draw loop, where an undefined would throw inside the
+ * timer and freeze the Recording while the clock kept running.
+ */
+function readFrame(value: unknown): FrameSettings {
+  const input = (value ?? {}) as Partial<FrameSettings>
+  const corner = FRAME_CORNERS.includes(input.corner as FrameCorner)
+    ? (input.corner as FrameCorner)
+    : DEFAULT_FRAME_SETTINGS.corner
+  return {
+    enabled: input.enabled === true,
+    corner,
+    background: input.background === 'blurred' ? 'blurred' : 'sharp',
+  }
 }
 
 export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
@@ -76,11 +97,11 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
      * file nobody writes to, and Export would then be handed a Segment that
      * does not exist. The first Segment is claimed by nextSegmentPath().
      */
-    async begin() {
+    async begin(frame) {
       currentSession = await Session.create({
         libraryRoot: libraryRoot(),
         ensureFolder: ensureSessionFolder,
-        frame: DEFAULT_FRAME_SETTINGS,
+        frame: readFrame(frame),
       })
       segmentPaths.length = 0
       // Lumen's window shows a live picture of what it captures, so a Display
@@ -133,10 +154,12 @@ export function createSessionRuntime(deps: SessionRuntimeDeps): SessionRuntime {
         const written: string[] = []
         for (const segment of segmentPaths) {
           const size = await statInLibrary(relativeInLibrary(segment)).catch(() => 0)
+          console.log('[DEBUG-frame] segment size', { segment: path.basename(segment), size })
           if (size > 0) written.push(segment)
         }
 
         if (written.length === 0) {
+          console.log('[DEBUG-frame] no written segments, segmentPaths:', segmentPaths.map(p => path.basename(p)))
           throw new Error('Nothing was recorded, so there is nothing to save.')
         }
 

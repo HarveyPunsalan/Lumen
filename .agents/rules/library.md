@@ -64,12 +64,3 @@ regression.
 The Library shows total size. A user recording one to two hours a day fills an
 8GB drive in a few weeks, and they need to see that number to decide what to
 remove.
-
-## Camera footage
-
-`cam.webm` is temporary. Delete it after Export unless the user explicitly kept
-the camera. Default to discarding.
-
-A user who turned the camera off has nothing to delete, and a user who turned
-it on and then exported without blur may not want their room footage on disk at
-all.

@@ -105,6 +105,7 @@ export function App() {
         <SourcePicker
           progress={exportProgress}
           microphone={permissions.microphone}
+          camera={permissions.camera}
           onExportingChange={setExporting}
           onSaved={markSaved}
         />

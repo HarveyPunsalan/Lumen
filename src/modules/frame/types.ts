@@ -19,7 +19,9 @@ export interface FrameSettings {
 export const DEFAULT_FRAME_SETTINGS: FrameSettings = {
   enabled: false,
   corner: 'bottom-right',
-  background: 'blurred',
+  // Sharp until a person-segmentation processor is benchmarked at thirty
+  // frames a second. A promise nobody has measured is not a feature.
+  background: 'sharp',
 }
 
 export const FRAME_CORNERS: readonly FrameCorner[] = [

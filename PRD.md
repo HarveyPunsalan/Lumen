@@ -54,7 +54,7 @@ Display or a Window. Produces a Recording cropped to that rectangle, with no
 black padding and nothing outside it.
 
 **Frame**, the camera image placed in a Recording. Off, or in any of four
-corners, with the room behind it blurred or sharp.
+corners, drawn into the picture while it captures.
 
 **Trim**, removing seconds from the start or the end of a Recording.
 
@@ -121,15 +121,19 @@ if the crop ran afterwards, whatever passed through the rectangle at any moment
 during the Session would end up in the Recording. That is precisely what the
 user is trying to prevent.
 
-The Frame's background blur is applied live, because person segmentation on a
-ninety minute file afterwards is not reasonable in time or memory. The Frame's
-corner and its sharp-or-blurred treatment are still Export choices.
+The Frame is applied live too. The camera picture is drawn into the same canvas
+the recorder encodes, so the screen and the face are one stream that cannot
+drift apart, and the preview shows what the file will contain. The corner is
+chosen before recording starts.
 
-The Frame sits behind a `FrameProcessor` interface. The implementation is not
-yet decided. macOS Vision gives better edges and runs locally, but needs a
-Swift bridge. MediaPipe is pure JavaScript and works on both platforms, with
-blurrier edges and a large dependency. Nothing outside the frame module knows
-which one is in use.
+Blurring the Frame's background, when it exists, also runs live, because person
+segmentation on a ninety minute file afterwards is not reasonable in time or
+memory. That treatment sits behind a `FrameProcessor` interface. The
+implementation is not yet decided. macOS Vision gives better edges and runs
+locally, but needs a Swift bridge. MediaPipe is pure JavaScript and works on
+both platforms, with blurrier edges and a large dependency. Nothing outside the
+frame module knows which one is in use. Until one is benchmarked at thirty
+frames a second, the Frame ships sharp.
 
 The architecture is a modular monolith, and the boundaries are in
 `.agents/rules/architecture.md`.
@@ -142,9 +146,10 @@ Capture runs on Electron's `desktopCapturer` and `MediaRecorder` rather than on
 platform APIs written by hand, which is the reason for choosing Electron at
 all. [ADR 0003](./docs/adr/0003-electron-over-tauri.md).
 
-macOS requires Screen Recording permission, and Microphone for narration. Both
-are requested by the OS, not by Lumen. If either is denied, Lumen says so
-rather than recording a blank desktop.
+macOS requires Screen Recording permission, Microphone for narration, and
+Camera for the Frame. All three are requested by the OS, not by Lumen. If
+Screen Recording is denied, Lumen says so rather than recording a blank
+desktop.
 
 Permissions are attributed to the host application during development, so
 running from a terminal attributes the capture permission to that terminal
@@ -203,9 +208,10 @@ The Recording plays inside the app without scrolling. Delete removes it.
 
 **Segment.** A crash or force quit loses at most one second, not the Recording.
 
-**Frame.** Off is off. Any corner places it. Sharp and blurred both work. The
-background treatment is chosen at Export, and changing it does not require
-recording again.
+**Frame.** Off is off. Any corner places it. The circle sits inside the
+picture while recording, in the corner chosen before Start, and the preview
+shows it before the file exists. Blur is deferred until a person-segmentation
+processor is benchmarked at thirty frames a second.
 
 **Trim.** Setting a start and an end produces a Recording of that length.
 
@@ -256,10 +262,14 @@ user's voice in Full Screen, Selected Window and Region, and a Recording with
 it off stays silent. The switch is still a checkbox and there is no device
 picker, so the default input is used.
 
+Implemented, not yet verified: the Frame. The camera picture is drawn into the
+Recording while it captures, in any of four corners, sharp. Camera permission,
+the Frame switch and the corner picker are in place.
+
 Not yet verified: whether a crash or force quit loses at most one second.
 
-Not started: switching Target mid-Session, Frame and its `FrameProcessor`
-implementation, Trim, encryption, Lock, and crash
+Not started: switching Target mid-Session, the `FrameProcessor` background
+blur, Trim, encryption, Lock, and crash
 recovery. `crypto.ts` throws on every entry point, so the Library is not yet
 encrypted at rest. There is no `meta.json` writer and no startup scan for a
 Session that did not Export.

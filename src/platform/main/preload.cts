@@ -27,12 +27,14 @@ const api = {
   refreshScreens: () => ipcRenderer.invoke('capture:refresh-screens'),
   openScreenRecordingSettings: () => ipcRenderer.invoke('capture:open-settings'),
   openMicrophoneSettings: () => ipcRenderer.invoke('capture:open-mic-settings'),
+  openCameraSettings: () => ipcRenderer.invoke('capture:open-camera-settings'),
   selectSource: (sourceId: string, sourceName: string) =>
     ipcRenderer.invoke('capture:select-source', sourceId, sourceName),
   clearSource: () => ipcRenderer.invoke('capture:clear-source'),
 
   // session
-  beginSession: () => ipcRenderer.invoke('session:begin'),
+  beginSession: (frame: { enabled: boolean; corner: string; background: string }) =>
+    ipcRenderer.invoke('session:begin', frame),
   nextSegmentPath: () => ipcRenderer.invoke('session:segment-path'),
   writeChunk: (relativePath: string, bytes: ArrayBuffer) =>
     ipcRenderer.invoke('session:write-chunk', relativePath, bytes),

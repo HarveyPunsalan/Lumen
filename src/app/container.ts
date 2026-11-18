@@ -9,6 +9,7 @@ import type { Handler } from '../platform/main/ipc.js'
 import { setLibraryRoot, ensureLibrary } from '../modules/library/paths.js'
 import {
   getPermissions,
+  openCameraSettings,
   openMicrophoneSettings,
   openScreenRecordingSettings,
 } from '../modules/capture/main/permissions.js'
@@ -62,6 +63,7 @@ export function wireModules(root: string, platform: PlatformHandles): WiredModul
       'capture:refresh-screens': async () => sourceDirectory.refreshScreens(),
       'capture:open-settings': async () => openScreenRecordingSettings(),
       'capture:open-mic-settings': async () => openMicrophoneSettings(),
+      'capture:open-camera-settings': async () => openCameraSettings(),
 
       'capture:select-source': async (_event, sourceId, sourceName) => {
         runtime.selectSource(sourceDirectory.find(sourceId, sourceName))
@@ -70,7 +72,7 @@ export function wireModules(root: string, platform: PlatformHandles): WiredModul
         runtime.clearSource()
       },
 
-      'session:begin': async () => runtime.begin(),
+      'session:begin': async (_event, frame) => runtime.begin(frame),
       'session:segment-path': async () => runtime.nextSegmentPath(),
       'session:write-chunk': async (_event, relativePath, bytes) => {
         await runtime.writeChunk(relativePath as string, bytes as ArrayBuffer)

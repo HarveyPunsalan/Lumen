@@ -39,11 +39,11 @@ to `platform/` except its public types.
 |---|---|
 | `capture` | Source, Target, Region, Display, Window. Permission checks. The `MediaRecorder`. |
 | `session` | Session lifecycle, Segment files, `meta.json`. |
-| `frame` | The camera track, corner placement, background treatment. |
-| `export` | ffmpeg. Concat, Frame overlay, Trim, encode. |
+| `frame` | The Frame vocabulary and the `FrameProcessor` seam for background blur. The camera picture itself is drawn by the capture renderer's compositor. |
+| `export` | ffmpeg. Concat, Trim, encode. |
 | `library` | Paths, encryption, listing, deletion, size. |
 | `platform/main` | Electron wiring: bootstrap, window, protocol, ipc, preload, display media. Registers the handlers `app/` hands it. |
-| `platform/renderer` | UI. Calls the preload API. Imports `capture`'s public types and its `renderer/` half, nothing else. |
+| `platform/renderer` | UI. Calls the preload API. Imports modules' public types and `capture`'s `renderer/` half, nothing else. |
 
 ## Rules
 
@@ -88,11 +88,8 @@ Segments are deleted after Export succeeds.
 
 ## Effects happen at Export
 
-Trim and the Frame's corner are applied when the Session becomes a Recording,
-not while recording. ADR 0004.
-
-This is why the camera video is a separate file rather than merged into the
-recording stream. The user can record once and export it more than one way.
+Trim is applied when the Session becomes a Recording, not while recording.
+ADR 0004.
 
 There are two exceptions, because postponing either one would change what the
 file contains or make the work impractical.
@@ -103,11 +100,15 @@ Recording, which is exactly what the user is trying to prevent. The pixels
 outside the Region never reach the file. The capture renderer owns this;
 Export does not repeat it.
 
-Blurring the Frame's background is the other exception. Segmentation must run
-per frame during recording. It lives behind one interface in
+The Frame is applied during capture too. The camera picture is drawn into the
+compositor's canvas, so the screen and the face are one stream that cannot
+drift apart, and the preview shows the file. See `compositor.ts`.
+
+Blurring the Frame's background, when it exists, runs during capture as well:
+segmentation must run per frame. It lives behind one interface in
 `frame/processor.ts` so it can be swapped for a different implementation or
-removed entirely without touching anything else. If either implementation
-leaks into another module, that interface is broken.
+removed entirely without touching anything else. If an implementation leaks
+into another module, that interface is broken.
 
 ## No server
 

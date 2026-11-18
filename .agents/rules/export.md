@@ -7,14 +7,17 @@ Read this before touching ffmpeg or the Export pipeline.
 Takes a finished Session and produces one MP4.
 
 ```
-concat Segments  ->  overlay Frame  ->  trim  ->  encode
+concat Segments  ->  trim  ->  encode
 ```
 
-Each step is optional. A Recording with no Frame has no overlay, and one with
-no Trim has no trim step.
+The trim step is optional. A Recording with no Trim has no trim step.
 
 A Region is not an Export step. It is applied during capture, so the Segments
 already contain only the Region. See ADR 0004.
+
+The Frame is not an Export step either. Its picture is drawn into the
+Segments during capture, in the corner chosen before Start. Do not add an
+overlay step; it would draw the camera over a picture that already has it.
 
 ## ffmpeg invocation
 
@@ -63,22 +66,6 @@ That keeps it correct on a Retina Display and when a Window is resized during
 a Session. Do not add a crop step to Export; it would crop an already cropped
 Segment and could reintroduce the content the user excluded.
 
-## Overlay
-
-Only if the Frame is enabled.
-
-The Frame's corner is chosen at Export, not at record time. ADR 0004.
-
-```
-scale=320:-1                       scale the camera down
-overlay=W-w-20:H-h-20              bottom right
-overlay=20:H-h-20                  bottom left
-overlay=W-w-20:20                  top right
-overlay=20:20                      top left
-```
-
-`W` and `H` are the output dimensions. `-20` is the margin from the edge.
-
 ## Trim
 
 `-ss` before `-to`. Placing them as output options is slower than placing them
@@ -100,7 +87,5 @@ percentage. Do not fake it with a timer.
 
 Delete the Segments. Keep the MP4 and `meta.json`. If the Library fills with
 orphaned `.webm` files the user has 8GB of storage to lose.
-
-Delete `cam.webm` too unless the user kept the camera.
 
 Check the output exists and is non-zero before reporting success.
