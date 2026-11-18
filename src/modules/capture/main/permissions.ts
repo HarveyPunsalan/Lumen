@@ -10,6 +10,7 @@ export async function getPermissions(): Promise<PermissionReport> {
   return {
     screen: systemPreferences.getMediaAccessStatus('screen') as PermissionState,
     microphone: systemPreferences.getMediaAccessStatus('microphone') as PermissionState,
+    camera: systemPreferences.getMediaAccessStatus('camera') as PermissionState,
   }
 }
 
@@ -27,6 +28,15 @@ export async function openMicrophoneSettings(): Promise<boolean> {
   if (process.platform !== 'darwin') return false
   await shell.openExternal(
     'x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone',
+  )
+  return true
+}
+
+/** macOS only. The pane where Camera permission is granted. */
+export async function openCameraSettings(): Promise<boolean> {
+  if (process.platform !== 'darwin') return false
+  await shell.openExternal(
+    'x-apple.systempreferences:com.apple.preference.security?Privacy_Camera',
   )
   return true
 }

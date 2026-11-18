@@ -11,6 +11,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { decodeLumenError } from '@lumen/kernel/errors'
 import type { CaptureMode, PermissionState, Region, Source } from '@lumen/modules/capture/types'
+import type { FrameCorner, FrameSettings } from '@lumen/modules/frame/types'
 import {
   Recorder,
   SEGMENT_TIMESLICE_MS,
@@ -107,14 +108,28 @@ const STOP_TAIL_MS = 1_000
 /** Where the narration choice is remembered between launches. */
 const NARRATION_KEY = 'lumen.narration'
 
+/** Where the Frame choice is remembered between launches. */
+const FRAME_KEY = 'lumen.frame'
+const FRAME_CORNER_KEY = 'lumen.frame.corner'
+
+/** The four corners, with the words the user reads. */
+const CORNERS: ReadonlyArray<{ corner: FrameCorner; label: string }> = [
+  { corner: 'top-left', label: 'Top left' },
+  { corner: 'top-right', label: 'Top right' },
+  { corner: 'bottom-left', label: 'Bottom left' },
+  { corner: 'bottom-right', label: 'Bottom right' },
+]
+
 export function SourcePicker({
   progress,
   microphone,
+  camera,
   onExportingChange,
   onSaved,
 }: {
   progress: number
   microphone: PermissionState
+  camera: PermissionState
   onExportingChange: (exporting: boolean) => void
   onSaved: () => void
 }) {
@@ -138,6 +153,35 @@ export function SourcePicker({
   useEffect(() => {
     localStorage.setItem(NARRATION_KEY, narration ? 'on' : 'off')
   }, [narration])
+  /**
+   * Whether the next Session draws the Frame, and in which corner. Off until
+   * asked for, then remembered: the camera never opens by itself. The
+   * background stays sharp until a processor is benchmarked.
+   */
+  const [frame, setFrame] = useState<FrameSettings>(() => {
+    const stored = localStorage.getItem(FRAME_CORNER_KEY)
+    return {
+      enabled: localStorage.getItem(FRAME_KEY) === 'on',
+      corner: CORNERS.some((entry) => entry.corner === stored)
+        ? (stored as FrameCorner)
+        : 'bottom-right',
+      background: 'sharp',
+    }
+  })
+
+  useEffect(() => {
+    localStorage.setItem(FRAME_KEY, frame.enabled ? 'on' : 'off')
+    localStorage.setItem(FRAME_CORNER_KEY, frame.corner)
+    // If Frame is turned OFF while idle or after a save, force-release any
+    // camera the recorder might still hold (e.g. from a StrictMode double-mount
+    // that leaked, or a stop path that didn't run stopCamera).
+    if (frame.enabled === false &&
+        (status === 'idle' || status === 'saved') &&
+        recorder.current !== null) {
+      console.log('[DEBUG-frame] Frame toggled off while idle/saved, forcing camera release')
+      recorder.current.dispose()
+    }
+  }, [frame, status])
   const recorder = useRef<Recorder | null>(null)
   // True from the moment Stop is pressed until the next Start. Drives the
   // frozen REC badge, so the clock stops climbing during Export.
@@ -263,7 +307,7 @@ export function SourcePicker({
       )
 
       const session = await withTimeout(
-        window.lumen.beginSession(),
+        window.lumen.beginSession(frame),
         'Creating the recording folder',
       )
       setPicked(target)
@@ -364,6 +408,7 @@ export function SourcePicker({
         source={picked}
         region={target ?? null}
         narration={narration}
+        frame={frame}
         recorderRef={recorder}
         folder={folder}
         exporting={exporting}
@@ -491,6 +536,58 @@ export function SourcePicker({
             </button>
           </span>
         )}
+        <label className="flex cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            checked={frame.enabled}
+            onChange={(event) => {
+              // Read now, not inside the updater. React runs that function
+              // after the handler returns, when event.currentTarget is null.
+              const enabled = event.currentTarget.checked
+              setFrame((current) => ({ ...current, enabled }))
+            }}
+            className="h-4 w-4 accent-red-600"
+          />
+          <span className="text-sm text-neutral-200">Frame</span>
+        </label>
+        {frame.enabled && camera !== 'granted' && (
+          <span className="text-xs text-neutral-500">
+            Camera access is off.{' '}
+            <button
+              type="button"
+              onClick={() => {
+                void window.lumen.openCameraSettings()
+              }}
+              className="underline hover:text-neutral-300"
+            >
+              Open Settings
+            </button>
+          </span>
+        )}
+        {frame.enabled && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-neutral-500">Corner</span>
+            <div className="flex overflow-hidden rounded-md border border-neutral-700">
+              {CORNERS.map((entry) => (
+                <button
+                  key={entry.corner}
+                  type="button"
+                  aria-pressed={frame.corner === entry.corner}
+                  onClick={() =>
+                    setFrame((current) => ({ ...current, corner: entry.corner }))
+                  }
+                  className={`px-2 py-1 text-xs ${
+                    frame.corner === entry.corner
+                      ? 'bg-neutral-100 font-medium text-neutral-900'
+                      : 'text-neutral-300 hover:bg-neutral-800'
+                  }`}
+                >
+                  {entry.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="mt-4 flex items-center gap-4">
@@ -527,6 +624,7 @@ function RecordingControls({
   source,
   region,
   narration,
+  frame,
   recorderRef,
   folder,
   exporting,
@@ -538,6 +636,7 @@ function RecordingControls({
   source: Source
   region: Region | null
   narration: boolean
+  frame: FrameSettings
   recorderRef: React.RefObject<Recorder | null>
   folder: string | null
   exporting: boolean
@@ -584,12 +683,20 @@ function RecordingControls({
               }
             },
             SEGMENT_TIMESLICE_MS,
-            { preview: preview.current ?? undefined, narration },
+            { preview: preview.current ?? undefined, narration, frame },
           ),
           'Starting the capture',
         )
         if (stopped) return
-        if (region === null && preview.current !== null && recorder.previewStream !== null) {
+        // With no Region and no Frame the preview shows the raw Source. Either
+        // one routes the preview through the compositor instead, because the
+        // composed picture is what the file will contain.
+        if (
+          region === null &&
+          !frame.enabled &&
+          preview.current !== null &&
+          recorder.previewStream !== null
+        ) {
           preview.current.srcObject = recorder.previewStream
         }
         setReady(true)
@@ -607,7 +714,7 @@ function RecordingControls({
       clock.current = null
       recorder.dispose()
     }
-  }, [source, region, recorderRef])
+  }, [source, region, frame, recorderRef])
 
   // The REC clock belonged to the effect above, which only cleaned up when this
   // screen unmounted. Unmounting waits for Export, so the timer kept counting

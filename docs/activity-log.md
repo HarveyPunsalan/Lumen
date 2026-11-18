@@ -85,7 +85,7 @@ Export. Everything else is an Export step because it can be changed
 afterwards. A Region cannot, because if the crop ran at Export, whatever was
 inside the rectangle at any moment during the Session would end up in the
 Recording, which is exactly what a user is trying to prevent. ADR 0004 still
-holds for the Frame. See `region-cropper.ts`.
+holds for the Frame. See `compositor.ts`.
 
 Not yet verified: whether the live Region actually keeps content out of the
 Recording when the user alt-tabs. That needs a manual test with two windows
@@ -297,3 +297,42 @@ have produced a file that played perfectly and stayed quiet.
 Still open: the Narration control is a checkbox and should be a switch before
 v1. The default input is used, with no device picker. System audio stays out of
 scope for v1.
+
+## 2026-11-17 (the Frame)
+
+**No camera picture.** The Frame had no implementation, and the written design
+described something that was never going to be built: the camera recorded to
+its own `cam.webm`, then overlaid onto the picture at Export. That design keeps
+the corner reversible after recording, but two recordings have to be kept in
+sync and the overlay is a stitching step where the picture can go wrong.
+
+Decision: the Frame is drawn live, into the same canvas the recorder encodes.
+One stream, one encode, and the preview shows the file. The corner is chosen
+before Start. ADR 0004, architecture.md, system-design.md and export.md now
+say so; `cam.webm` and the overlay step are gone from the pipeline, and
+library.md no longer tells anyone to delete a file that does not exist. The
+separate camera file returns in v2 only if changing the corner after recording
+is ever wanted, and the sync cost is accepted then.
+
+Sharp only for v1. Background blur needs person segmentation running at thirty
+frames a second, which has not been benchmarked, so `DEFAULT_FRAME_SETTINGS`
+now defaults to sharp and the README no longer promises blur.
+
+Built: camera permission in the report plus the pane that grants it, the camera
+asked for while the Session opens and released on Stop and on every failure
+path, the compositor that crops a Region and draws the Frame circle in one
+canvas (renamed from `region-cropper.ts`), the Frame switch and corner picker
+on the Record screen, off by default and remembered, and the Session's real
+Frame settings instead of a hardcoded default.
+
+Interview note: the repo's own ADR and rules specified the opposite design to
+the one agreed in conversation. Reading the rules before writing code is what
+caught it. Building anyway would have shipped a second recording and a sync
+bug against a written decision.
+
+Still open: the Frame control is a checkbox, like Narration, and both become
+switches in the polish pass. No camera device picker. `NSCameraUsageDescription`
+is needed at packaging time, next to the microphone one. Blur stays behind
+`FrameProcessor` until it is measured. Verification is pending: Full Screen,
+Selected Window and Region with the Frame on, off, and the camera indicator
+after Stop.

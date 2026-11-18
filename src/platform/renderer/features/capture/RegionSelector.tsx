@@ -447,8 +447,8 @@ export function RegionSelector({
     if (region === null || box === undefined || box === null) return
     if (region.width < 8 || region.height < 8) return
 
-    // Fractions, not pixels: the captured frame is what the cropper measures,
-    // and it knows its own size. See region-cropper.ts.
+    // Fractions, not pixels: the captured frame is what the compositor measures,
+    // and it knows its own size. See compositor.ts.
     onConfirm({
       x: region.x / box.width,
       y: region.y / box.height,

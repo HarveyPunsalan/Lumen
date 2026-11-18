@@ -27,6 +27,7 @@ export interface SessionInfo {
   readonly folder: string
   readonly startedAt: number
   readonly segments: readonly Segment[]
+  /** The Frame settings this Session recorded with. Chosen before Start. */
   readonly frame: FrameSettings
 }
 
@@ -51,7 +52,7 @@ export class Session {
     readonly id: string,
     readonly folder: string,
     readonly startedAt: number,
-    private frame: FrameSettings,
+    readonly frame: FrameSettings,
   ) {}
 
   static async create(options: SessionOptions): Promise<Session> {
@@ -87,14 +88,6 @@ export class Session {
     }
     this.segments.push(segment)
     return segment
-  }
-
-  /**
-   * Frame settings are chosen at Export, not at record time. ADR 0004.
-   * Only whether the camera is on has to be decided before recording starts.
-   */
-  setFrameSettings(settings: FrameSettings): void {
-    this.frame = settings
   }
 
   get info(): SessionInfo {

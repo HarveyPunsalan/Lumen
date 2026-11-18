@@ -64,8 +64,7 @@ Removing seconds from the start or the end of a Recording.
 _Avoid_: cut, edit, clip
 
 **Export**:
-Turning a finished Session into a Recording. Also the moment where a Frame's
-corner and background treatment are chosen.
+Turning a finished Session into a Recording.
 _Avoid_: save, render, convert
 
 **Library**:

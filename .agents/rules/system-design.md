@@ -14,14 +14,13 @@ Record pressed
   Session created at ~/Movies/Lumen/<timestamp>_<id>/
     part-001.webm      the recorder writing a chunk every second
     part-002.webm      began after a Target switch
-    cam.webm           the camera, separate file
     meta.json          Segments, timestamps, Frame settings
 
-  A Region is applied live: the recorder encodes only the rectangle.
+  A Region is cropped live and the Frame is drawn live: the recorder
+  encodes the composed picture, not the raw stream.
 
 Stop pressed
   concat Segments      -c copy, no re-encode
-  overlay              if the Frame is enabled
   trim                 if the user set in or out points
   encode               H.264, AAC, faststart
   delete Segments      leave the MP4 and meta.json

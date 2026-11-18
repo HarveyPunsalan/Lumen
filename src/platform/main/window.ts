@@ -30,10 +30,10 @@ export function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webSecurity: true,
-      // Not a security control: the Region crop runs on a timer in this
-      // window and has to keep ticking while the user is looking at another
-      // app. Chromium otherwise throttles it, which froze Region recordings.
-      // See region-cropper.ts.
+      // Not a security control: the Region crop and the Frame run on a timer
+      // in this window and have to keep ticking while the user is looking at
+      // another app. Chromium otherwise throttles them, which froze Region
+      // recordings. See compositor.ts.
       backgroundThrottling: false,
     },
   })

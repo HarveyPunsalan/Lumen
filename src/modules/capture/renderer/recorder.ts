@@ -8,7 +8,8 @@
  */
 
 import type { Target } from '../types.js'
-import { RegionCropper } from './region-cropper.js'
+import type { FrameSettings } from '../../frame/types.js'
+import { Compositor, type FrameLayer } from './compositor.js'
 
 /** Fired once per timeslice with the blob to append to the current Segment. */
 export type RecorderChunkHandler = (chunk: Blob) => Promise<void> | void
@@ -16,10 +17,12 @@ export type RecorderChunkHandler = (chunk: Blob) => Promise<void> | void
 export class Recorder {
   private recorder: MediaRecorder | null = null
   private stream: MediaStream | null = null
-  private cropper: RegionCropper | null = null
+  private compositor: Compositor | null = null
   private handler: RecorderChunkHandler | null = null
   /** The narrator's microphone. Not part of any capture stream of ours. */
   private micTrack: MediaStreamTrack | null = null
+  /** The Frame's camera. Drawn into the compositor, never encoded directly. */
+  private cameraStream: MediaStream | null = null
 
   /**
    * Whether dispose() has run. getUserMedia does not resolve immediately, so a
@@ -44,16 +47,20 @@ export class Recorder {
    * in memory until stopped, which means a two hour Session exhausts RAM and a
    * crash loses the whole Recording. See ADR 0002.
    *
-   * When the Target carries a Region, the crop runs live and the recorder
-   * encodes the cropped canvas, not the raw stream.
+   * When the Target carries a Region or the Frame is enabled, the picture is
+   * composed live and the recorder encodes the canvas, not the raw stream.
    */
   async beginSegment(
     target: Target,
     handler: RecorderChunkHandler,
     timesliceMs: number,
-    options: { preview?: HTMLVideoElement | undefined; narration?: boolean } = {},
+    options: {
+      preview?: HTMLVideoElement | undefined
+      narration?: boolean
+      frame?: FrameSettings | undefined
+    } = {},
   ): Promise<void> {
-    const { preview, narration = false } = options
+    const { preview, narration = false, frame } = options
     this.dispose()
     this.disposed = false
 
@@ -86,6 +93,29 @@ export class Recorder {
 
     this.stream = stream
 
+    // The camera is asked for while the Session opens, for the same reason as
+    // the microphone: a slow permission prompt must not land on the first
+    // frames. Unlike narration, a camera that cannot open is an error rather
+    // than a silent gap, because the user asked for their face to be in the
+    // file and a Recording without it is not the Recording they chose.
+    let camera: MediaStream | null = null
+    if (frame?.enabled === true) {
+      console.log('[DEBUG-frame] acquiring camera')
+      try {
+        camera = await navigator.mediaDevices.getUserMedia({ video: true })
+        console.log('[DEBUG-frame] camera acquired, tracks:', camera.getTracks().length)
+      } catch {
+        throw new Error(
+          'The camera could not be opened. Check Camera access for Lumen in System Settings, then start again.',
+        )
+      }
+      if (this.disposed) {
+        for (const track of camera.getTracks()) track.stop()
+        return
+      }
+      this.cameraStream = camera
+    }
+
     // The microphone is asked for while the Session opens, so a slow or
     // denied permission prompt does not land on top of the first frames. A
     // failure leaves the Segment silent rather than dropping it.
@@ -102,29 +132,38 @@ export class Recorder {
       }
     }
 
-    let encoded: MediaStream
-    if (target.region !== undefined) {
-      this.cropper = await RegionCropper.start(stream, target.region)
+    // The Frame's layer only exists when a camera was actually opened, and
+    // frame is only defined in that case too, because that is the only path
+    // that acquires one.
+    const layer: FrameLayer | null =
+      camera !== null && frame !== undefined ? { corner: frame.corner, camera } : null
 
-      // dispose() can run while the cropper waits for its first frame. Nothing
-      // owns the stream then, so release it instead of letting it record.
+    let encoded: MediaStream
+    if (target.region !== undefined || layer !== null) {
+      this.compositor = await Compositor.start(stream, target.region, layer)
+
+      // dispose() can run while the compositor waits for its first frame.
+      // Nothing owns the stream then, so release it instead of letting it
+      // record.
       if (this.disposed) {
         this.stopMic()
-        this.cropper.stop()
-        this.cropper = null
+        this.stopCamera()
+        this.compositor.stop()
+        this.compositor = null
         for (const track of stream.getTracks()) track.stop()
         return
       }
 
-      encoded = this.cropper.output
-      if (preview !== undefined) this.cropper.attachPreview(preview)
+      encoded = this.compositor.output
+      if (preview !== undefined) this.compositor.attachPreview(preview)
     } else {
       encoded = stream
     }
 
-    // A Region is cropped into a canvas, which carries video only, and the
-    // display stream is asked for without system audio. The microphone is the
-    // only audio there is, so it is joined onto whatever is being encoded.
+    // A Region and the Frame both run through a canvas, which carries video
+    // only, and the display stream is asked for without system audio. The
+    // microphone is the only audio there is, so it is joined onto whatever is
+    // being encoded.
     if (this.micTrack !== null) {
       encoded = new MediaStream([...encoded.getVideoTracks(), this.micTrack])
     }
@@ -135,7 +174,11 @@ export class Recorder {
     this.handler = handler
     this.writes = Promise.resolve()
     this.recorder.ondataavailable = (event) => {
-      if (event.data.size === 0) return
+      if (event.data.size === 0) {
+        console.log('[DEBUG-frame] chunk size 0, skipping')
+        return
+      }
+      console.log('[DEBUG-frame] chunk size', event.data.size)
       this.writes = this.writes
         .then(() => {
           const handler = this.handler
@@ -153,8 +196,10 @@ export class Recorder {
   /**
    * The live capture stream, for the preview.
    *
-   * The raw Source, not the cropped output, so the preview shows everything on
-   * screen with the Region drawn over it. Null until beginSegment resolves.
+   * The raw Source, not the composed output, so the preview shows everything
+   * on screen with the Region drawn over it. Null until beginSegment resolves.
+   * When the Frame is on, the preview points at the composed output instead,
+   * because that is what the file will contain.
    */
   get previewStream(): MediaStream | null {
     return this.stream
@@ -186,14 +231,18 @@ export class Recorder {
       ])
     }
 
+    // Release camera and mic before waiting for writes, so the system
+    // indicators turn off at Stop, not after Export finishes.
+    this.stopMic()
+    this.stopCamera()
+
     await this.writes
     this.handler = null
     this.disposed = true
-    this.cropper?.stop()
-    this.cropper = null
+    this.compositor?.stop()
+    this.compositor = null
     for (const track of this.stream?.getTracks() ?? []) track.stop()
     this.stream = null
-    this.stopMic()
   }
 
   /** Release the capture stream. Called on every failure path, never at Stop. */
@@ -202,17 +251,29 @@ export class Recorder {
     this.handler = null
     this.recorder?.stop()
     this.recorder = null
-    this.cropper?.stop()
-    this.cropper = null
+    this.compositor?.stop()
+    this.compositor = null
     for (const track of this.stream?.getTracks() ?? []) track.stop()
     this.stream = null
     this.stopMic()
+    this.stopCamera()
   }
 
   /** Let go of the microphone, so the system indicator stops showing. */
   private stopMic(): void {
     this.micTrack?.stop()
     this.micTrack = null
+  }
+
+  /** Let go of the camera, so the system indicator stops showing. */
+  private stopCamera(): void {
+    console.log('[DEBUG-frame] stopCamera called, tracks:', this.cameraStream?.getTracks().length ?? 0)
+    for (const track of this.cameraStream?.getTracks() ?? []) {
+      console.log('[DEBUG-frame] stopping camera track:', track.kind, track.readyState)
+      track.stop()
+      console.log('[DEBUG-frame] track stopped, readyState:', track.readyState)
+    }
+    this.cameraStream = null
   }
 }
 

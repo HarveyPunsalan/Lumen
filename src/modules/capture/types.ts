@@ -30,11 +30,12 @@ export interface Source {
  * with no Region. Nothing is ever blurred or dimmed, so the three cases are
  * just a Source and an optional rectangle.
  *
- * A Region is applied live, during capture, not at Export like the Frame. If it
- * were applied at Export, whatever happened to be inside the rectangle at any
- * moment during the Session would be in the Recording, and a Script parked in
- * that area would leak into the file. See architecture.md, Effects happen at
- * Export.
+ * A Region is applied live, during capture, not at Export. The Frame is
+ * drawn live too, because the screen and the camera are one stream that
+ * cannot drift apart. If either were applied at Export, whatever happened
+ * during the Session would be stitched together afterwards, and the pixels
+ * outside a Region would end up in the file. See architecture.md, Effects
+ * happen at Export.
  */
 export interface Target {
   readonly source: Source
@@ -48,7 +49,7 @@ export interface Target {
  * Values are fractions of the Target's frame, from 0 to 1, not pixels. A
  * Display and a Window report different pixel sizes, and a Window can be
  * resized during a Session, so the crop is resolved against the captured frame
- * instead. See region-cropper.ts.
+ * instead. See compositor.ts.
  */
 export interface Region {
   readonly x: number
@@ -69,4 +70,5 @@ export type PermissionState = 'granted' | 'denied' | 'restricted' | 'not-determi
 export interface PermissionReport {
   readonly screen: PermissionState
   readonly microphone: PermissionState
+  readonly camera: PermissionState
 }

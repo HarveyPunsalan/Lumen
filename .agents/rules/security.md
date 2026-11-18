@@ -65,11 +65,6 @@ the disk when the machine is powered off. While the user is logged in and
 recording, the disk is decrypted and every file is readable by any process
 running as that user. That is why this layer exists.
 
-## Camera footage
-
-`cam.webm` is deleted after Export unless the user explicitly keeps it. Default
-to discarding. A user who chose Camera off has nothing to delete.
-
 ## Supply chain
 
 Check the license of every package before adding it, not after. `ffmpeg-static`
